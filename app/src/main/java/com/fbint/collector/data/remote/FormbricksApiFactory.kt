@@ -15,6 +15,22 @@ class FormbricksApiFactory(
     private val client: OkHttpClient,
     private val moshi: Moshi,
 ) {
+    /**
+     * Client used for the client API, which carries the non-idempotent POSTs (responses,
+     * displays, storage presign). OkHttp's default `retryOnConnectionFailure` transparently
+     * re-sends a request on a recoverable connection failure — for `POST /responses` that
+     * silently creates a second response whenever the server already processed the first
+     * attempt. That retry happens inside a single call, below `queued_responses.sendingAt`,
+     * so the in-flight marker cannot see it; stopping OkHttp from retrying is the only fix.
+     *
+     * Retries stay enabled on [client] for the management API, whose GETs are idempotent and
+     * benefit from them on flaky venue Wi-Fi. `newBuilder` shares the connection pool and
+     * dispatcher, so the extra client costs nothing.
+     */
+    private val noRetryClient: OkHttpClient by lazy {
+        client.newBuilder().retryOnConnectionFailure(false).build()
+    }
+
     private var managementCacheUrl: String? = null
     private var managementCache: FormbricksManagementApi? = null
     private var clientCacheUrl: String? = null
@@ -25,7 +41,7 @@ class FormbricksApiFactory(
         val url = baseUrlProvider().normalizeBaseUrl()
         if (managementCacheUrl != url || managementCache == null) {
             managementCacheUrl = url
-            managementCache = build(url).create(FormbricksManagementApi::class.java)
+            managementCache = build(url, client).create(FormbricksManagementApi::class.java)
         }
         return managementCache!!
     }
@@ -35,14 +51,14 @@ class FormbricksApiFactory(
         val url = baseUrlProvider().normalizeBaseUrl()
         if (clientCacheUrl != url || clientCache == null) {
             clientCacheUrl = url
-            clientCache = build(url).create(FormbricksClientApi::class.java)
+            clientCache = build(url, noRetryClient).create(FormbricksClientApi::class.java)
         }
         return clientCache!!
     }
 
-    private fun build(baseUrl: String): Retrofit = Retrofit.Builder()
+    private fun build(baseUrl: String, httpClient: OkHttpClient): Retrofit = Retrofit.Builder()
         .baseUrl(baseUrl.toHttpUrl())
-        .client(client)
+        .client(httpClient)
         .addConverterFactory(MoshiConverterFactory.create(moshi))
         .build()
 
