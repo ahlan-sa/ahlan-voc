@@ -40,20 +40,23 @@ data class SyncStatusState(
     val synced: Int = 0,
     val struggling: Int = 0,
     val recent: List<QueuedResponseEntity> = emptyList(),
+    val surveyNames: Map<String, String> = emptyMap(),
 )
 
 @HiltViewModel
 class SyncStatusViewModel @Inject constructor(
     private val repo: ResponseRepository,
     private val sync: SyncScheduler,
+    private val surveys: com.fbint.collector.data.local.SurveyDao,
 ) : ViewModel() {
     val state = combine(
         repo.pendingCount(),
         repo.syncedCount(),
         repo.strugglingCount(),
         repo.recent(),
-    ) { pending, synced, struggling, recent ->
-        SyncStatusState(pending, synced, struggling, recent)
+        surveys.observeAll(),
+    ) { pending, synced, struggling, recent, surveys ->
+        SyncStatusState(pending, synced, struggling, recent, surveys.associate { it.id to it.name })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncStatusState())
 
     fun syncNow() = sync.requestImmediateSync()
@@ -89,7 +92,7 @@ fun SyncStatusScreen(
                 style = MaterialTheme.typography.titleMedium,
             )
             LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                items(state.recent, key = { it.clientUuid }) { item -> ResponseRow(item) }
+                items(state.recent, key = { it.clientUuid }) { item -> ResponseRow(item, state.surveyNames[item.surveyId]) }
             }
         }
     }
@@ -106,19 +109,25 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun ResponseRow(item: QueuedResponseEntity) {
+private fun ResponseRow(item: QueuedResponseEntity, name: String?) {
     val statusLabel = when {
         item.syncedAt != null -> "Synced"
-        item.attempts == 0 -> "Pending"
+        item.sendingAt != null -> "Verifying upload before retry"
+        item.attempts == 0 -> "Saved on device · waiting to sync"
         else -> "Retry x${item.attempts}"
     }
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-            Text("Survey ${item.surveyId}", style = MaterialTheme.typography.bodyMedium)
+            Text(name ?: "Survey ${item.surveyId}", style = MaterialTheme.typography.bodyMedium)
             Text(
                 "Surveyor ${item.surveyorId ?: "—"}  •  $statusLabel",
                 style = MaterialTheme.typography.bodySmall,
             )
+            Text("Collected " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
+                java.text.DateFormat.SHORT).format(java.util.Date(item.capturedAt)), style = MaterialTheme.typography.bodySmall)
+            if (item.syncedAt != null) Text("Synced " + java.text.DateFormat.getDateTimeInstance(
+                java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(item.syncedAt)),
+                style = MaterialTheme.typography.bodySmall)
             if (!item.lastError.isNullOrBlank() && item.syncedAt == null) {
                 Text(
                     item.lastError,

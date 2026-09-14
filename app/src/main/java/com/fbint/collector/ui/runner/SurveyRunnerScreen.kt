@@ -39,6 +39,7 @@ import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -103,14 +104,37 @@ private fun SurveyRunnerContent(nav: NavHostController, surveyId: String) {
     val isRtl = state.availableLanguages.firstOrNull { it.lookupKey == state.language }?.isRtl == true
     val direction = if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr
 
+    var confirmExit by remember { mutableStateOf(false) }
+    val collecting = state.stage == RunnerStage.Welcome || state.stage is RunnerStage.Question
+    androidx.activity.compose.BackHandler(enabled = collecting || state.stage == RunnerStage.Submitting) {
+        if (collecting) confirmExit = true
+    }
+    if (state.restoredDraft) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { nav.popBackStack() },
+            title = { Text("Resume saved response?") },
+            text = { Text("Your answers and collection time were saved on this device.") },
+            confirmButton = { TextButton(onClick = vm::resumeDraft) { Text("Resume") } },
+            dismissButton = { TextButton(onClick = vm::reset) { Text("Discard and start new") } })
+    }
+    if (confirmExit) {
+        androidx.compose.material3.AlertDialog(onDismissRequest = { confirmExit = false },
+            title = { Text("Save and leave?") },
+            text = { Text("You can resume this response when you reopen the survey.") },
+            confirmButton = { TextButton(onClick = { confirmExit = false; if (vm.saveAndExit()) nav.popBackStack() }) { Text("Save and leave") } },
+            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("Keep collecting") } })
+    }
     CompositionLocalProvider(LocalLayoutDirection provides direction) {
     Scaffold(
         containerColor = style.backgroundColor,
         topBar = {
             TopAppBar(
-                title = { Text(survey?.name ?: "Survey", color = style.questionTextColor) },
+                title = { Column {
+                    Text(survey?.name ?: "Survey", color = style.questionTextColor)
+                    if (collecting) Text(state.locationStatus, style = MaterialTheme.typography.bodySmall)
+                } },
                 navigationIcon = {
-                    IconButton(onClick = { nav.popBackStack() }) {
+                    IconButton(enabled = state.stage != RunnerStage.Submitting, onClick = { if (collecting) confirmExit = true else nav.popBackStack() }) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back to list",
@@ -188,6 +212,13 @@ private fun SurveyRunnerContent(nav: NavHostController, surveyId: String) {
                             Text(stage.message, color = style.questionTextColor)
                         }
                     }
+                }
+            }
+            if (state.stage == RunnerStage.Done || state.stage is RunnerStage.Ending) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text(if (state.receiptSynced) "Synced to Formbricks" else "Saved on this device · waiting to sync",
+                        style = MaterialTheme.typography.titleSmall)
+                    Text(state.receipt, style = MaterialTheme.typography.bodySmall)
                 }
             }
             FooterButtons(state = state, style = style, onBack = vm::back, onNext = vm::next, onStart = vm::startFromWelcome)
@@ -437,14 +468,14 @@ private fun DonePane(style: SurveyStyle, onAnother: () -> Unit, onExit: () -> Un
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "Saved offline",
+            "Response saved",
             color = style.questionTextColor,
             fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Will sync as soon as a network is available.",
+            "See the collection receipt below for upload status.",
             color = style.questionTextColor.copy(alpha = 0.7f),
         )
         Spacer(Modifier.height(24.dp))

@@ -11,6 +11,14 @@ import retrofit2.http.PUT
 import retrofit2.http.Path
 
 interface FormbricksManagementApi {
+    @GET("api/v1/management/responses")
+    suspend fun listResponses(
+        @Header("x-api-key") apiKey: String,
+        @retrofit2.http.Query("surveyId") surveyId: String,
+        @retrofit2.http.Query("limit") limit: Int,
+        @retrofit2.http.Query("skip") skip: Int,
+    ): com.fbint.collector.data.remote.dto.ResponseHistoryEnvelope
+
 
     @GET("api/v1/management/me")
     suspend fun me(@Header("x-api-key") apiKey: String): MeDto

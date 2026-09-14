@@ -57,6 +57,10 @@ data class RunnerState(
     val availableLanguages: List<LanguageOption> = emptyList(),
     val showLanguageSwitch: Boolean = false,
     val validationError: String? = null,
+    val restoredDraft: Boolean = false,
+    val receiptSynced: Boolean = false,
+    val receipt: String = "",
+    val locationStatus: String = "Location will be checked at submission",
 )
 
 @HiltViewModel(assistedFactory = SurveyRunnerViewModel.Factory::class)
@@ -77,7 +81,37 @@ class SurveyRunnerViewModel @AssistedInject constructor(
     private var capturedSurveyorId: String? = null
 
     private val engine = LogicEngine()
-    private val backStack = ArrayDeque<RunnerStage>()
+    private val backStack = ArrayDeque<RunnerHistory>()
+    private var receiptJob: kotlinx.coroutines.Job? = null
+    private var submissionId = java.util.UUID.randomUUID().toString()
+    private val draftAdapter = com.squareup.moshi.Moshi.Builder()
+        .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build().adapter(RunnerDraft::class.java)
+    private fun stageKey(stage: RunnerStage): String = when (stage) {
+        RunnerStage.Welcome -> "welcome"
+        is RunnerStage.Question -> stage.questionId
+        else -> "welcome"
+    }
+    private fun stageFrom(key: String): RunnerStage = if (key == "welcome") RunnerStage.Welcome else RunnerStage.Question(key)
+
+    private fun persistDraft(): Boolean {
+        val s = _state.value
+        val survey = s.survey ?: return false
+        if (s.stage != RunnerStage.Welcome && s.stage !is RunnerStage.Question) return false
+        try {
+            config.saveDraft(surveyId, draftAdapter.toJson(RunnerDraft(submissionId, survey, stageKey(s.stage),
+                ctx.answers.toMap(), ctx.variables.toMap(), ctx.hiddenFields.toMap(), s.language, capturedSurveyorId,
+                startedAtMs, (android.os.SystemClock.elapsedRealtime() - startedElapsedMs).coerceAtLeast(0),
+                System.currentTimeMillis(), backStack.toList())))
+            return true
+        } catch (_: Exception) {
+            _state.update { it.copy(validationError = "Draft could not be saved. Check device storage before leaving this screen.") }
+            return false
+        }
+    }
+
+    fun resumeDraft() { _state.update { it.copy(restoredDraft = false) } }
+    fun saveAndExit(): Boolean = persistDraft()
+
     private val ctx = LogicContext()
 
     private val _state = MutableStateFlow(RunnerState())
@@ -87,13 +121,26 @@ class SurveyRunnerViewModel @AssistedInject constructor(
 
     private fun load() {
         viewModelScope.launch {
-            val survey = surveyRepo.loadFromCache(surveyId)
+            val draft = config.loadDraft(surveyId)?.let { runCatching { draftAdapter.fromJson(it) }.getOrNull() }
+            val cached = surveyRepo.loadFromCache(surveyId)
+            val survey = draft?.survey?.copy(hiddenFields = cached?.hiddenFields ?: draft.survey.hiddenFields) ?: cached
             if (survey == null) {
                 _state.update { it.copy(stage = RunnerStage.Error("Survey not in cache. Refresh while online.")) }
                 return@launch
             }
             if (!survey.isVisibleInApp()) {
                 _state.update { it.copy(stage = RunnerStage.Error("This survey is not enabled for collection in the app. Refresh the survey list.")) }
+                return@launch
+            }
+            if (draft != null && responseQueueDao.getById(draft.submissionId) != null) {
+                config.deleteDraft(surveyId)
+                load()
+                return@launch
+            }
+            if (survey.hiddenFields?.enabled != true || !survey.hiddenFields.fieldIds.containsAll(
+                    listOf("surveyor_id", "time_to_complete_seconds", "location_lat", "location_lng"))) {
+                _state.update { it.copy(stage = RunnerStage.Error(
+                    "This survey is missing required collector, timing or location fields. Refresh surveys, then ask your administrator to enable those hidden fields if this message remains.")) }
                 return@launch
             }
             val defaults = survey.variables.associate { v ->
@@ -122,6 +169,10 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             _state.update {
                 it.copy(
                     survey = survey,
+                    restoredDraft = false,
+                    validationError = null,
+                    receipt = "",
+                    receiptSynced = false,
                     stage = firstStage,
                     answers = emptyMap(),
                     variables = defaults,
@@ -133,25 +184,49 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                     showLanguageSwitch = available.size > 1,
                 )
             }
+            if (draft != null) {
+                submissionId = draft.submissionId
+                capturedSurveyorId = draft.surveyorId
+                startedAtMs = draft.startedAtMs
+                val elapsed = draft.elapsedMs + (System.currentTimeMillis() - draft.savedAtMs).coerceAtLeast(0)
+                startedElapsedMs = android.os.SystemClock.elapsedRealtime() - elapsed
+                ctx.answers.putAll(draft.answers)
+                ctx.variables.clear(); ctx.variables.putAll(draft.variables)
+                ctx.hiddenFields.clear(); ctx.hiddenFields.putAll(draft.hiddenFields)
+                backStack.clear(); backStack.addAll(draft.history)
+                _state.update { it.copy(stage = stageFrom(draft.stage), answers = draft.answers,
+                    variables = draft.variables, language = draft.language, restoredDraft = true) }
+            } else {
+                submissionId = java.util.UUID.randomUUID().toString()
+                persistDraft()
+            }
+            viewModelScope.launch {
+                val fix = runCatching { locationProvider.current(10_000) }.getOrNull()
+                _state.update { it.copy(locationStatus = if (fix == null) "GPS not ready — check location before submitting"
+                    else "Last GPS fix · accuracy ±${fix.accuracy.toInt()} m") }
+            }
         }
     }
 
     fun setLanguage(code: String) {
         if (code == _state.value.language) return
         _state.update { it.copy(language = code) }
+        persistDraft()
     }
 
     fun startFromWelcome() {
         val survey = _state.value.survey ?: return
         val first = survey.questions.firstOrNull()
         val next = if (first != null) RunnerStage.Question(first.id) else firstEndingOrDone(survey)
-        backStack.addLast(RunnerStage.Welcome)
+        backStack.addLast(RunnerHistory("welcome", ctx.variables.toMap()))
         _state.update { it.copy(stage = next, validationError = null) }
+        persistDraft()
     }
 
     fun setAnswer(questionId: String, value: Any?) {
         ctx.answers[questionId] = value
         _state.update { it.copy(answers = it.answers + (questionId to value), validationError = null) }
+        persistDraft()
     }
 
     fun next() {
@@ -165,7 +240,8 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             _state.update { it.copy(validationError = "Required") }
             return
         }
-        backStack.addLast(s.stage)
+        val beforeLogic = ctx.variables.toMap()
+        backStack.addLast(RunnerHistory(stageKey(s.stage), beforeLogic))
         val nextStep = engine.nextStep(current, survey, ctx)
         val newStage = when (nextStep) {
             is NextStep.Question -> RunnerStage.Question(nextStep.id)
@@ -176,17 +252,19 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             it.copy(stage = newStage, validationError = null, variables = ctx.variables.toMap())
         }
         if (newStage is RunnerStage.Ending || newStage is RunnerStage.Done) {
-            submit(if (newStage is RunnerStage.Ending) newStage.endingId else null, s.stage)
-        }
+            submit(if (newStage is RunnerStage.Ending) newStage.endingId else null, s.stage, beforeLogic)
+        } else persistDraft()
     }
 
     fun back() {
         if (backStack.isEmpty()) return
         val previous = backStack.removeLast()
-        _state.update { it.copy(stage = previous, validationError = null) }
+        ctx.variables.clear(); ctx.variables.putAll(previous.variables)
+        _state.update { it.copy(stage = stageFrom(previous.stage), variables = previous.variables, validationError = null) }
+        persistDraft()
     }
 
-    private fun submit(endingId: String?, previousStage: RunnerStage) {
+    private fun submit(endingId: String?, previousStage: RunnerStage, beforeLogic: Map<String, Any?>) {
         val survey = _state.value.survey ?: return
         if (_state.value.stage == RunnerStage.Submitting) return
         _state.update { it.copy(stage = RunnerStage.Submitting) }
@@ -198,10 +276,16 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                     deviceInstallId = config.deviceInstallId(),
                     appVersion = BuildConfig.VERSION_NAME,
                 )
+                check(survey.hiddenFields?.enabled == true && survey.hiddenFields.fieldIds.containsAll(
+                    listOf("surveyor_id", "time_to_complete_seconds", "location_lat", "location_lng"))) {
+                    "Required response fields are missing. Save this draft, refresh surveys, and ask your administrator to enable the location and timing hidden fields."
+                }
                 responseRepo.enqueue(
                     surveyId = survey.id,
+                    clientUuid = submissionId,
+                    surveyorId = capturedSurveyorId,
                     environmentId = survey.environmentId,
-                    data = ctx.answers.toMap().filterValues { it != null },
+                    data = ctx.answers.filterKeys { id -> backStack.any { it.stage == id } }.filterValues { it != null },
                     finished = true,
                     // Translate our magic "default" lookup key back to the survey's actual
                     // default language code (e.g. "en-GB"). Formbricks rejects "default" as
@@ -212,11 +296,27 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                     autoStampCandidates = candidates,
                     allowedHiddenFieldIds = survey.hiddenFields?.fieldIds.orEmpty().toSet(),
                 )
+                config.deleteDraft(surveyId)
                 sync.requestImmediateSync()
+                val id = submissionId
+                receiptJob?.cancel()
+                _state.update { it.copy(receiptSynced = false) }
+                receiptJob = viewModelScope.launch {
+                    responseQueueDao.observeById(id).collect { row ->
+                        if (submissionId == id) _state.update { it.copy(receiptSynced = row?.syncedAt != null) }
+                    }
+                }
+                _state.update { it.copy(receipt = "${instrumentation.timeToCompleteSeconds} seconds · " +
+                        (instrumentation.location?.let { loc -> "${loc.latitude}, ${loc.longitude} · ±${loc.accuracy.toInt()} m" } ?: "")) }
                 val finalStage = endingId?.let { RunnerStage.Ending(it) } ?: RunnerStage.Done
                 _state.update { it.copy(stage = finalStage) }
             } catch (t: Throwable) {
-                _state.update { it.copy(stage = previousStage, validationError = t.message ?: "Failed to save response. Please retry.") }
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                ctx.variables.clear(); ctx.variables.putAll(beforeLogic)
+                if (backStack.isNotEmpty()) backStack.removeLast()
+                _state.update { it.copy(stage = previousStage, variables = beforeLogic,
+                    validationError = t.message ?: "Failed to save response. Please retry.") }
+                persistDraft()
             }
         }
     }
@@ -269,8 +369,13 @@ class SurveyRunnerViewModel @AssistedInject constructor(
     }
 
     fun reset() {
+        receiptJob?.cancel()
+        config.deleteDraft(surveyId)
         backStack.clear()
-        load()
+        viewModelScope.launch {
+            fileRepo.discardUnboundFiles(surveyId)
+            load()
+        }
     }
 
     fun currentQuestion(): QuestionDto? {

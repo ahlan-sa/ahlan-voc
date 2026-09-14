@@ -17,14 +17,16 @@ android {
         targetSdk = 35
         // Bump versionCode + versionName for every release; the in-app updater compares
         // versionName against the GitHub release tag (after stripping leading "v").
-        versionCode = 13
-        versionName = "0.5.4"
+        versionCode = 14
+        versionName = "0.5.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("debug") // Preserve installed signing identity.
+            isDebuggable = false
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -111,3 +113,5 @@ dependencies {
 }
 
 kapt { correctErrorTypes = true }
+
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }

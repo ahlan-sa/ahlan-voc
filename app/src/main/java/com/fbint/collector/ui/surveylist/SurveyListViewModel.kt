@@ -132,8 +132,12 @@ class SurveyListViewModel @Inject constructor(
 
     /** Clears every device-level setting so the splash re-routes to the role picker. */
     fun resetDevice() {
+        if (state.value.pendingResponses > 0) return
         config.clear()
     }
+    fun verifyAdminKey(value: String): Boolean = value.isNotBlank() &&
+        java.security.MessageDigest.isEqual(value.trim().toByteArray(), config.apiKey().orEmpty().toByteArray())
+
 
     fun checkForUpdate() = runUpdateCheck(silent = false)
 
@@ -190,7 +194,7 @@ class SurveyListViewModel @Inject constructor(
         _update.update { it.copy(downloading = true, downloadProgress = 0, errorMessage = null) }
         viewModelScope.launch {
             try {
-                val file = updateChecker.download(info.downloadUrl) { pct ->
+                val file = updateChecker.download(info.downloadUrl, info.sha256) { pct ->
                     _update.update { it.copy(downloadProgress = pct) }
                 }
                 if (file == null) {

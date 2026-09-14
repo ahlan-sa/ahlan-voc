@@ -43,4 +43,6 @@ data class QueuedResponseEntity(
      * still cause a duplicate; this marker is not server-side idempotency.
      */
     val sendingAt: Long? = null,
+    val serverBaseUrl: String? = null,
+    val allowedHiddenFieldsJson: String? = null,
 )

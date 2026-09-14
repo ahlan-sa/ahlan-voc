@@ -52,6 +52,7 @@ fun SurveyListScreen(
     vm: SurveyListViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    var search by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     val updateState by vm.updateState.collectAsState()
     androidx.compose.runtime.LaunchedEffect(Unit) {
         vm.silentlyCheckOnLaunch()
@@ -78,7 +79,7 @@ fun SurveyListScreen(
                     IconButton(onClick = vm::refresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
-                    OverflowMenu(nav = nav, onReset = vm::resetDevice, onCheckUpdate = vm::checkForUpdate)
+                    OverflowMenu(nav = nav, onReset = vm::resetDevice, onCheckUpdate = vm::checkForUpdate, pending = state.pendingResponses, verifyAdmin = vm::verifyAdminKey)
                 },
             )
         },
@@ -91,6 +92,14 @@ fun SurveyListScreen(
                 online = state.online,
                 onSyncNow = vm::syncNow,
             )
+            androidx.compose.material3.OutlinedTextField(value = search, onValueChange = { search = it },
+                label = { Text("Find a survey") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp))
+            state.surveys.maxOfOrNull { it.cachedAt }?.let { time ->
+                Text("Surveys saved " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
+                    java.text.DateFormat.SHORT).format(java.util.Date(time)),
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
+            }
             if (state.refreshing) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -111,7 +120,7 @@ fun SurveyListScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-                    items(state.surveys, key = { it.id }) { survey ->
+                    items(state.surveys.filter { it.name.contains(search, ignoreCase = true) }, key = { it.id }) { survey ->
                         val counts = state.perSurveyCounts[survey.id]
                         Card(
                             modifier = Modifier
@@ -123,7 +132,7 @@ fun SurveyListScreen(
                                 Text(survey.name, style = MaterialTheme.typography.titleMedium)
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "Status: ${survey.status ?: "—"}  •  Type: ${survey.type ?: "—"}",
+                                    "Available offline",
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                                 if (counts != null) {
@@ -150,9 +159,29 @@ private fun OverflowMenu(
     nav: NavHostController,
     onReset: () -> Unit,
     onCheckUpdate: () -> Unit,
+    pending: Int,
+    verifyAdmin: (String) -> Boolean,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
+    var adminMode by remember { mutableStateOf(false) }
+    var unlock by remember { mutableStateOf(false) }
+    var key by remember { mutableStateOf("") }
+    var keyError by remember { mutableStateOf(false) }
+    if (unlock) {
+        AlertDialog(onDismissRequest = { unlock = false; key = "" }, title = { Text("Unlock admin controls") },
+            text = { Column {
+                Text("Enter the workspace API key to manage this device.")
+                androidx.compose.material3.OutlinedTextField(value = key, onValueChange = { key = it; keyError = false },
+                    label = { Text("API key") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    isError = keyError, singleLine = true)
+                if (keyError) Text("The key does not match this workspace.")
+            } },
+            confirmButton = { TextButton(onClick = {
+                if (verifyAdmin(key)) { adminMode = true; unlock = false; key = "" } else keyError = true
+            }) { Text("Unlock") } },
+            dismissButton = { TextButton(onClick = { unlock = false; key = "" }) { Text("Cancel") } })
+    }
     IconButton(onClick = { expanded = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = "More")
     }
@@ -181,27 +210,37 @@ private fun OverflowMenu(
             onClick = { expanded = false; nav.navigate(Routes.DOWNLOAD_QR) },
         )
         DropdownMenuItem(
+            text = { Text(if (adminMode) "Lock admin controls" else "Admin controls…") },
+            onClick = { expanded = false; if (adminMode) adminMode = false else unlock = true },
+        )
+        if (adminMode) {
+        if (pending > 0) DropdownMenuItem(text = { Text("Sync pending responses before changing setup") }, onClick = {}, enabled = false)
+        DropdownMenuItem(
             text = { Text("Show setup QR") },
             onClick = { expanded = false; nav.navigate(Routes.ADMIN_QR) },
         )
         DropdownMenuItem(
             text = { Text("Scan setup QR") },
+            enabled = pending == 0,
             onClick = { expanded = false; nav.navigate(Routes.SURVEYOR_SCAN) },
         )
         DropdownMenuItem(
             text = { Text("Re-enter API key") },
+            enabled = pending == 0,
             onClick = { expanded = false; nav.navigate(Routes.ADMIN_SETUP) },
         )
         DropdownMenuItem(
             text = { Text("Reset device…") },
+            enabled = pending == 0,
             onClick = { expanded = false; confirmReset = true },
         )
+        }
     }
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
             title = { Text("Reset device?") },
-            text = { Text("This clears the API key, environment, and surveyor ID. Pending responses stay queued. You'll need to scan the QR or re-run admin setup.") },
+            text = { Text("This clears the API key, workspace, surveyor identity, and saved drafts. Synced response history stays on this device. You'll need to scan the QR or re-run admin setup.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmReset = false

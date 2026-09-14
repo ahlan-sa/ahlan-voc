@@ -22,6 +22,7 @@ data class UpdateInfo(
     val downloadUrl: String,
     val sizeBytes: Long,
     val isNewer: Boolean,
+    val sha256: String? = null,
 )
 
 /**
@@ -43,7 +44,7 @@ class UpdateChecker @Inject constructor(
 
     suspend fun check(): UpdateInfo? = withContext(Dispatchers.IO) {
         val req = Request.Builder()
-            .url("https://api.github.com/repos/essamharoon/ahlan-voc/releases/latest")
+            .url("https://api.github.com/repos/ahlan-sa/ahlan-voc/releases/latest")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .build()
@@ -61,34 +62,51 @@ class UpdateChecker @Inject constructor(
                 downloadUrl = asset.browserDownloadUrl,
                 sizeBytes = asset.size,
                 isNewer = compareVersions(latest, installed) > 0,
+                sha256 = asset.digest?.takeIf { it.startsWith("sha256:") }?.removePrefix("sha256:"),
             )
         }
     }
 
     /** Streams the APK to app cache. [onProgress] is called with 0..100 (or -1 for unknown). */
-    suspend fun download(url: String, onProgress: (Int) -> Unit): File? = withContext(Dispatchers.IO) {
+    suspend fun download(url: String, expectedSha256: String? = null, onProgress: (Int) -> Unit): File? = withContext(Dispatchers.IO) {
         val dir = File(ctx.cacheDir, "update").apply { mkdirs() }
         val target = File(dir, "ahlan-update.apk")
         if (target.exists()) target.delete()
         val req = Request.Builder().url(url).build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return@use null
-            val body = resp.body ?: return@use null
-            val total = body.contentLength()
-            body.byteStream().use { input ->
-                target.outputStream().use { output ->
-                    val buf = ByteArray(16 * 1024)
-                    var read = 0L
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        output.write(buf, 0, n)
-                        read += n
-                        if (total > 0) onProgress(((read * 100) / total).toInt())
-                        else onProgress(-1)
+        val temporary = File(dir, "ahlan-update.part")
+        try {
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body ?: return@withContext null
+                val total = body.contentLength()
+                var read = 0L
+                body.byteStream().use { input ->
+                    temporary.outputStream().use { output ->
+                        val buffer = ByteArray(16 * 1024)
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            output.write(buffer, 0, n)
+                            read += n
+                            onProgress(if (total > 0) ((read * 100) / total).toInt() else -1)
+                        }
+                        output.fd.sync()
                     }
                 }
+                if (read == 0L || (total >= 0 && read != total)) return@withContext null
+                if (expectedSha256 != null) {
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    temporary.inputStream().use { input ->
+                        val buf = ByteArray(16 * 1024)
+                        while (true) { val n = input.read(buf); if (n < 0) break; digest.update(buf, 0, n) }
+                    }
+                    val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                    if (!actual.equals(expectedSha256, ignoreCase = true)) return@withContext null
+                }
+                if (!temporary.renameTo(target)) return@withContext null
             }
+        } finally {
+            temporary.delete()
         }
         target
     }
@@ -140,4 +158,5 @@ internal data class GitHubAsset(
     val name: String,
     @Json(name = "browser_download_url") val browserDownloadUrl: String,
     val size: Long,
+    val digest: String? = null,
 )

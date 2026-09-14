@@ -31,6 +31,7 @@ class RequiredLocationTest {
         `when`(surveys.loadFromCache("survey")).thenReturn(SurveyDto(
             "survey", "Example", environmentId = "env", status = "inProgress",
             variables = listOf(VariableDto("visible", "show_in_app", "text", "YES")),
+            hiddenFields = HiddenFieldsDto(true, AUTO_STAMPED_HIDDEN_FIELD_IDS.toList()),
             questions = listOf(QuestionDto("question", "openText", required = false))))
         `when`(location.current(15_000)).thenReturn(null)
         val vm = SurveyRunnerViewModel("survey", surveys, responses,

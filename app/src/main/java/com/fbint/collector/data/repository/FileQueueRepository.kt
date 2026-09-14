@@ -40,9 +40,6 @@ class FileQueueRepository @Inject constructor(
     private val config: ConfigRepository,
     private val client: OkHttpClient,
 ) {
-    /** Resolved per-call so config updates take effect immediately. */
-    private val api: FormbricksClientApi
-        get() = factory.client { config.baseUrl() ?: "https://app.formbricks.com" }
     fun pendingCount(): Flow<Int> = dao.pendingCount()
     fun uploadedCount(): Flow<Int> = dao.uploadedCount()
 
@@ -74,6 +71,7 @@ class FileQueueRepository @Inject constructor(
         dao.insert(
             QueuedFileEntity(
                 clientUuid = uuid,
+                serverBaseUrl = config.baseUrl(),
                 surveyId = surveyId,
                 questionId = questionId,
                 environmentId = environmentId,
@@ -85,6 +83,13 @@ class FileQueueRepository @Inject constructor(
             )
         )
         "$FILE_PLACEHOLDER_PREFIX$uuid"
+    }
+
+    suspend fun discardUnboundFiles(surveyId: String) = withContext(Dispatchers.IO) {
+        val origin = config.baseUrl() ?: return@withContext
+        dao.unboundForSurvey(surveyId, origin).forEach { file ->
+            if (!File(file.localPath).exists() || File(file.localPath).delete()) dao.delete(file.clientUuid)
+        }
     }
 
     suspend fun bindFilesToResponse(fileIds: List<String>, responseUuid: String) {
@@ -102,13 +107,21 @@ class FileQueueRepository @Inject constructor(
         var failed = 0
         var retry = false
         for (item in pending) {
+            val now = System.currentTimeMillis()
+            if (dao.claimUpload(item.clientUuid, now, now - 10 * 60_000L) != 1) {
+                retry = true
+                continue
+            }
             try {
                 uploadOne(item)
                 done++
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 failed++
                 dao.markFailure(item.clientUuid, (t.message ?: t.javaClass.simpleName).take(500))
                 if (!isFatal(t)) retry = true
+            } finally {
+                dao.releaseUpload(item.clientUuid)
             }
         }
         return UploadOutcome(done, failed, retry)
@@ -123,7 +136,9 @@ class FileQueueRepository @Inject constructor(
             elementId = item.questionId,
             allowedFileExtensions = ext.takeIf { it.isNotBlank() }?.let { listOf(it) },
         )
-        val signed = api.requestUploadUrl(item.environmentId, req).data
+        val origin = item.serverBaseUrl ?: config.legacyQueueServer() ?: config.baseUrl()
+            ?: error("Original upload server is unavailable")
+        val signed = factory.client { origin }.requestUploadUrl(item.environmentId, req).data
         val file = File(item.localPath)
         if (!file.exists()) error("Local file missing: ${item.localPath}")
         val media = item.mimeType.toMediaTypeOrNull() ?: "application/octet-stream".toMediaTypeOrNull()

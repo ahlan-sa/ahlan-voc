@@ -32,4 +32,6 @@ data class QueuedFileEntity(
     val lastError: String? = null,
     val uploadedFileUrl: String? = null,
     val uploadedAt: Long? = null,
+    val serverBaseUrl: String? = null,
+    val uploadingAt: Long? = null,
 )

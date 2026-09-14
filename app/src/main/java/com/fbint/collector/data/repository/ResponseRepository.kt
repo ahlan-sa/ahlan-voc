@@ -24,9 +24,6 @@ class ResponseRepository @Inject constructor(
     private val surveyRepo: SurveyRepository,
     moshi: Moshi,
 ) {
-    /** Resolved per-call so config updates take effect immediately. */
-    private val api: FormbricksClientApi
-        get() = factory.client { config.baseUrl() ?: "https://app.formbricks.com" }
     private val mapAdapter: JsonAdapter<Map<String, Any?>> =
         moshi.adapter(Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java))
     private val variableMapAdapter: JsonAdapter<Map<String, Any?>> = mapAdapter
@@ -53,9 +50,12 @@ class ResponseRepository @Inject constructor(
         variables: Map<String, Any?> = emptyMap(),
         hiddenFields: Map<String, Any?> = emptyMap(),
         autoStampCandidates: Map<String, String> = emptyMap(),
-        @Suppress("UNUSED_PARAMETER") allowedHiddenFieldIds: Set<String> = emptySet(),
+        allowedHiddenFieldIds: Set<String> = emptySet(),
+        clientUuid: String = UUID.randomUUID().toString(),
+        surveyorId: String? = config.surveyorId(),
     ): String {
-        val uuid = UUID.randomUUID().toString()
+        val uuid = clientUuid
+        if (dao.getById(uuid) != null) return uuid
         val placeholderIds = files.extractFilePlaceholders(data)
         if (placeholderIds.isNotEmpty()) files.bindFilesToResponse(placeholderIds, uuid)
         // Store auto-stamps UNFILTERED. Sync filters against the survey's current cached
@@ -65,9 +65,11 @@ class ResponseRepository @Inject constructor(
         dao.insert(
             QueuedResponseEntity(
                 clientUuid = uuid,
+                serverBaseUrl = config.baseUrl(),
+                allowedHiddenFieldsJson = mapAdapter.toJson(allowedHiddenFieldIds.associateWith { true }),
                 surveyId = surveyId,
                 environmentId = environmentId,
-                surveyorId = config.surveyorId(),
+                surveyorId = surveyorId,
                 finished = finished,
                 language = language,
                 dataJson = mapAdapter.toJson(data),
@@ -105,6 +107,14 @@ class ResponseRepository @Inject constructor(
             val resolvedFiles: Map<String, com.fbint.collector.data.local.entity.QueuedFileEntity>
             val req: CreateResponseRequest
             try {
+                if (item.sendingAt != null) {
+                    val existing = reconcile(item)
+                    if (existing != null) {
+                        dao.markSynced(item.clientUuid, System.currentTimeMillis(), existing)
+                        synced++
+                        continue
+                    }
+                }
                 rawData = mapAdapter.fromJson(item.dataJson) ?: emptyMap()
                 val placeholderIds = files.extractFilePlaceholders(rawData)
                 resolvedFiles = if (placeholderIds.isEmpty()) emptyMap()
@@ -130,10 +140,14 @@ class ResponseRepository @Inject constructor(
                 // strings, so no collision; explicit answers win over hidden if any clash.
                 val autoStamps: Map<String, Any?> = mapAdapter.fromJson(item.autoStampsJson.orEmpty().ifBlank { "{}" }) ?: emptyMap()
                 val survey = surveyRepo.loadFromCache(item.surveyId)
-                val allowed = survey?.hiddenFields?.fieldIds.orEmpty().toSet()
+                val declaredAtCapture = mapAdapter.fromJson(item.allowedHiddenFieldsJson ?: "{}")?.keys.orEmpty()
+                val allowed = survey?.hiddenFields?.fieldIds.orEmpty().toSet() + declaredAtCapture
                 val identity = item.surveyorId?.takeIf { it.isNotBlank() }?.let {
                     mapOf("surveyor_id" to it, "surveyor_name" to it)
                 }.orEmpty()
+                check(autoStamps.isEmpty() || allowed.isNotEmpty()) {
+                    "Restore and refresh the original survey before uploading its saved metadata."
+                }
                 val filteredAutoStamps = (identity + autoStamps).filterKeys { it in allowed }
                 val mergedData = hidden.filterValues { it != null && it != "" } + filteredAutoStamps + finalData
                 req = CreateResponseRequest(
@@ -168,7 +182,9 @@ class ResponseRepository @Inject constructor(
                 continue
             }
             try {
-                val resp = api.createResponse(item.environmentId, req)
+                val origin = item.serverBaseUrl ?: config.legacyQueueServer() ?: config.baseUrl()
+                    ?: error("Original server is unavailable. Restore the device connection before syncing.")
+                val resp = factory.client { origin }.createResponse(item.environmentId, req)
                 // Once success is received, persist it even if WorkManager stops this job.
                 withContext(NonCancellable) {
                     dao.markSynced(item.clientUuid, System.currentTimeMillis(), resp.data.id)
@@ -198,6 +214,21 @@ class ResponseRepository @Inject constructor(
             }
         }
         return SyncOutcome(synced, failed, retry)
+    }
+
+    /** Resolve an uncertain acknowledgement before permitting another POST. */
+    private suspend fun reconcile(item: QueuedResponseEntity): String? {
+        val current = config.baseUrl()?.trimEnd('/') ?: error("Restore the original connection to reconcile this response.")
+        val origin = (item.serverBaseUrl ?: config.legacyQueueServer() ?: current).trimEnd('/')
+        check(current == origin) { "Reconnect the original server to verify an uncertain upload." }
+        val key = config.apiKey() ?: error("API key required to verify an uncertain upload.")
+        val management = factory.management { origin }
+        for (page in 0 until 100) {
+            val rows = management.listResponses(key, item.surveyId, 100, page * 100).data
+            rows.firstOrNull { it.meta?.get("source") == "fbint:${item.clientUuid}" }?.let { return it.id }
+            if (rows.size < 100) return null
+        }
+        error("Upload needs administrator review: response history exceeds the automatic verification limit.")
     }
 
     @Suppress("UNCHECKED_CAST")

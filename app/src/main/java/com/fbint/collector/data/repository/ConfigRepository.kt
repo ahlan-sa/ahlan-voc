@@ -37,6 +37,21 @@ class ConfigRepository @Inject constructor(
         )
     }
 
+    init {
+        // Bind legacy queue rows to the server configured when this version first starts.
+        if (!prefs.contains("legacy_queue_server") && prefs.contains(KEY_BASE_URL)) {
+            prefs.edit().putString("legacy_queue_server", prefs.getString(KEY_BASE_URL, null)).commit()
+        }
+    }
+
+    fun legacyQueueServer(): String? = prefs.getString("legacy_queue_server", null)
+    private fun draftKey(id: String) = "draft:${baseUrl()}:${workspaceId() ?: environmentId()}:$id"
+    fun loadDraft(id: String): String? = prefs.getString(draftKey(id), null)
+    fun saveDraft(id: String, json: String) {
+        check(prefs.edit().putString(draftKey(id), json).commit()) { "Unable to save draft. Check device storage." }
+    }
+    fun deleteDraft(id: String) { prefs.edit().remove(draftKey(id)).commit() }
+
     fun baseUrl(): String? = prefs.getString(KEY_BASE_URL, null)
     fun apiKey(): String? = prefs.getString(KEY_API_KEY, null)
     fun environmentId(): String? = prefs.getString(KEY_ENV_ID, null)
@@ -93,7 +108,8 @@ class ConfigRepository @Inject constructor(
     }
 
     fun clear() {
-        prefs.edit().clear().apply()
+        val legacy = legacyQueueServer()
+        prefs.edit().clear().putString("legacy_queue_server", legacy).commit()
     }
 
     /**

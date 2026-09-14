@@ -27,3 +27,9 @@ data class CreateDisplayRequest(
     val surveyId: String,
     val userId: String? = null,
 )
+
+@JsonClass(generateAdapter = true)
+data class ResponseHistoryEnvelope(val data: List<ResponseHistoryItem>)
+
+@JsonClass(generateAdapter = true)
+data class ResponseHistoryItem(val id: String, val meta: Map<String, Any?>? = null)

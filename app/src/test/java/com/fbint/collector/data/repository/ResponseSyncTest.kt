@@ -22,6 +22,8 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -167,8 +169,54 @@ class ResponseSyncTest {
         }
     }
 
+    @Test
+    fun uncertainAcknowledgementFindsExistingResponseWithoutPostingAgain() = runBlocking {
+        dao.insert(response("uncertain").copy(sendingAt = 1))
+        server.enqueue(MockResponse().setBody("""{"data":[{"id":"already-saved","meta":{"source":"fbint:uncertain"}}]}"""))
+        assertEquals(1, repository(dao).syncPending().synced)
+        assertEquals("GET", server.takeRequest().method)
+        assertEquals(1, server.requestCount)
+        assertEquals("already-saved", dao.getById("uncertain")!!.serverResponseId)
+    }
+
+    @Test
+    fun captureIdentifierPreventsDraftRecoveryFromDuplicatingQueuedResponse() = runBlocking {
+        val repo = repository(dao)
+        repo.enqueue("survey", "env", mapOf("answer" to "original"), true, null, clientUuid = "stable")
+        dao.markSynced("stable", 1, "server")
+        repo.enqueue("survey", "env", mapOf("answer" to "changed"), true, null, clientUuid = "stable")
+        assertEquals("server", dao.getById("stable")!!.serverResponseId)
+        assertTrue(dao.getById("stable")!!.dataJson.contains("original"))
+        assertEquals(1, dao.recent(10).first().size)
+    }
+
+    @Test
+    fun savedServerAddressSurvivesADeviceConfigurationChange() = runBlocking {
+        val origin = MockWebServer()
+        origin.start()
+        try {
+            dao.insert(response("bound").copy(serverBaseUrl = origin.url("/").toString()))
+            origin.enqueue(MockResponse().setBody("""{"data":{"id":"original-server"}}"""))
+            assertEquals(1, repository(dao).syncPending().synced)
+            assertEquals(1, origin.requestCount)
+            assertEquals(0, server.requestCount)
+        } finally { origin.shutdown() }
+    }
+
+    @Test
+    fun failedReconciliationDoesNotBlindlyPostAgain() = runBlocking {
+        dao.insert(response("uncertain").copy(sendingAt = 1))
+        server.enqueue(MockResponse().setResponseCode(403))
+        assertEquals(0, repository(dao).syncPending().synced)
+        assertEquals("GET", server.takeRequest().method)
+        assertEquals(1, server.requestCount)
+        assertNull(dao.getById("uncertain")!!.syncedAt)
+        assertNotNull(dao.getById("uncertain")!!.sendingAt)
+    }
+
     private fun repository(queue: ResponseQueueDao): ResponseRepository {
         val config = Mockito.mock(ConfigRepository::class.java)
+        Mockito.`when`(config.apiKey()).thenReturn("test-key")
         Mockito.`when`(config.baseUrl()).thenReturn(server.url("/").toString())
         val files = Mockito.mock(FileQueueRepository::class.java)
         Mockito.`when`(files.extractFilePlaceholders(Mockito.anyMap<String, Any?>()))

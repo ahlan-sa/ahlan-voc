@@ -10,8 +10,14 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ResponseQueueDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(item: QueuedResponseEntity)
+
+    @Query("SELECT * FROM queued_responses WHERE clientUuid = :id")
+    fun observeById(id: String): Flow<QueuedResponseEntity?>
+
+    @Query("SELECT * FROM queued_responses WHERE clientUuid = :id")
+    suspend fun getById(id: String): QueuedResponseEntity?
 
     /**
      * Pending rows excluding ones currently in-flight. A row is "in-flight" when its
