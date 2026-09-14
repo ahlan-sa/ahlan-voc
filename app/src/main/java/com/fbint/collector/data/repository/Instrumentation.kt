@@ -19,6 +19,7 @@ import android.location.Location
  */
 val AUTO_STAMPED_HIDDEN_FIELD_IDS: Set<String> = setOf(
     "surveyor_id",
+    "surveyor_name",
     "device_install_id",
     "app_version",
     "started_at",
@@ -51,6 +52,7 @@ fun Instrumentation.toCandidateStamps(
 ): Map<String, String> {
     val out = mutableMapOf<String, String>()
     out["surveyor_id"] = surveyorId.orEmpty()
+    out["surveyor_name"] = surveyorId.orEmpty()
     out["device_install_id"] = deviceInstallId
     out["app_version"] = appVersion
     out["started_at"] = startedAtIso

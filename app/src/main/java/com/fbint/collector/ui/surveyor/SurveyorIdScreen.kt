@@ -95,7 +95,7 @@ fun SurveyorIdScreen(
                     )
                     vm.save {
                         nav.navigate(Routes.SURVEY_LIST) {
-                            popUpTo(Routes.ROLE) { inclusive = true }
+                            popUpTo(0) { inclusive = true }
                         }
                     }
                 },

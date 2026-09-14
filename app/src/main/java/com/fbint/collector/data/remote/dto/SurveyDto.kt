@@ -69,6 +69,7 @@ data class WelcomeCardDto(
     val enabled: Boolean = false,
     val headline: Map<String, String>? = null,
     val html: Map<String, String>? = null,
+    val subheader: Map<String, String>? = null,
     val buttonLabel: Map<String, String>? = null,
     val fileUrl: String? = null,
 )

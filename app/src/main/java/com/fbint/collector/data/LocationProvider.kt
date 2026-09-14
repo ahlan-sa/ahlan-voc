@@ -7,6 +7,9 @@ import android.content.pm.PackageManager
 import android.location.Location
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.CurrentLocationRequest
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -36,10 +39,17 @@ class LocationProvider @Inject constructor(
         if (!hasPermission()) return null
         return withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine<Location?> { cont ->
-                client.lastLocation
-                    .addOnSuccessListener { loc -> cont.resume(loc) }
-                    .addOnFailureListener { cont.resume(null) }
-                    .addOnCanceledListener { cont.resume(null) }
+                val token = CancellationTokenSource()
+                cont.invokeOnCancellation { token.cancel() }
+                val request = CurrentLocationRequest.Builder()
+                    .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                    .setMaxUpdateAgeMillis(15_000)
+                    .setDurationMillis(timeoutMs)
+                    .build()
+                client.getCurrentLocation(request, token.token)
+                    .addOnSuccessListener { loc -> if (cont.isActive) cont.resume(loc) }
+                    .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+                    .addOnCanceledListener { if (cont.isActive) cont.resume(null) }
             }
         }
     }

@@ -73,6 +73,8 @@ class SurveyRunnerViewModel @AssistedInject constructor(
 ) : ViewModel(), FileUploadDelegate {
 
     private var startedAtMs: Long = 0L
+    private var startedElapsedMs: Long = 0L
+    private var capturedSurveyorId: String? = null
 
     private val engine = LogicEngine()
     private val backStack = ArrayDeque<RunnerStage>()
@@ -102,10 +104,13 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             ctx.hiddenFields.clear()
             // Pre-load any hidden fields the surveyor entered before starting this survey.
             val hiddenFieldIds = survey.hiddenFields?.fieldIds.orEmpty()
+                .filter { it !in com.fbint.collector.data.repository.AUTO_STAMPED_HIDDEN_FIELD_IDS }
             if (hiddenFieldIds.isNotEmpty()) {
                 ctx.hiddenFields.putAll(config.loadHiddenFields(survey.id, hiddenFieldIds))
             }
             startedAtMs = System.currentTimeMillis()
+            startedElapsedMs = android.os.SystemClock.elapsedRealtime()
+            capturedSurveyorId = config.surveyorId()
 
             val lang = survey.defaultLanguageCode()
             val available = survey.languageOptions()
@@ -188,7 +193,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             try {
                 val instrumentation = buildInstrumentation()
                 val candidates = instrumentation.toCandidateStamps(
-                    surveyorId = config.surveyorId(),
+                    surveyorId = capturedSurveyorId,
                     deviceInstallId = config.deviceInstallId(),
                     appVersion = BuildConfig.VERSION_NAME,
                 )
@@ -230,6 +235,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
 
     private suspend fun buildInstrumentation(): Instrumentation {
         val now = System.currentTimeMillis()
+        val elapsedSeconds = ((android.os.SystemClock.elapsedRealtime() - startedElapsedMs) / 1000L).coerceAtLeast(0)
         val started = if (startedAtMs > 0) startedAtMs else now
         val online = runCatching { networkMonitor.observeOnline().first() }.getOrDefault(false)
         val location = runCatching { locationProvider.current() }.getOrNull()
@@ -241,7 +247,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
         return Instrumentation(
             startedAtIso = Instant.ofEpochMilli(started).toString(),
             submittedAtIso = Instant.ofEpochMilli(now).toString(),
-            timeToCompleteSeconds = ((now - started) / 1000L).coerceAtLeast(0),
+            timeToCompleteSeconds = elapsedSeconds,
             surveyorPaceToday = pace,
             languageUsed = _state.value.language,
             isOfflineCapture = !online,

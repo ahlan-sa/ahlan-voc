@@ -93,7 +93,7 @@ class SurveyRepository @Inject constructor(
         if (config.apiKeyKnownReadOnly()) return survey
         val current = survey.hiddenFields?.fieldIds.orEmpty().toSet()
         val desired = current + AUTO_STAMPED_HIDDEN_FIELD_IDS
-        if (desired == current) return survey
+        if (desired == current && survey.hiddenFields?.enabled == true) return survey
         val mergedIds = desired.toList()
         val body = mapOf("hiddenFields" to mapOf("enabled" to true, "fieldIds" to mergedIds))
         return try {
@@ -108,7 +108,8 @@ class SurveyRepository @Inject constructor(
                 )
                 else -> survey
             }
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
             survey
         }
     }

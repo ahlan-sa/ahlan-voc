@@ -25,18 +25,15 @@ class NetworkMonitor @Inject constructor(
 
     fun observeOnline(): Flow<Boolean> = callbackFlow {
         trySend(currentlyOnline())
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) { trySend(true) }
-            override fun onLost(network: Network) { trySend(currentlyOnline()) }
+            override fun onAvailable(network: Network) { /* Wait for validation. */ }
+            override fun onLost(network: Network) { trySend(false) }
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                trySend(caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+                trySend(caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
             }
         }
-        cm.registerNetworkCallback(request, callback)
+        cm.registerDefaultNetworkCallback(callback)
         awaitClose { cm.unregisterNetworkCallback(callback) }
     }.distinctUntilChanged()
 

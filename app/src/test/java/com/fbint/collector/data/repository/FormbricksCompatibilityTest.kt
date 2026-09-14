@@ -269,6 +269,38 @@ class FormbricksCompatibilityTest {
         assertEquals(1, surveys.observeCachedSurveys().first().size)
     }
 
+    @Test
+    fun blankManualFieldsCannotEraseCaptureStampsOrUseRenamedSurveyor() = runBlocking {
+        Mockito.`when`(config.environmentId()).thenReturn("legacy-env")
+        val survey = moshi.adapter(SurveyDto::class.java).fromJson(surveyJson("stamps", "inProgress"))!!.copy(
+            hiddenFields = HiddenFieldsDto(true, AUTO_STAMPED_HIDDEN_FIELD_IDS.toList()))
+        reply(v5Me)
+        reply(moshi.adapter(SurveyListEnvelope::class.java).toJson(SurveyListEnvelope(listOf(survey))))
+        surveys.refresh().getOrThrow()
+        repeat(2) { server.takeRequest() }
+        val stamps = mapOf("surveyor_id" to "collector-17", "surveyor_name" to "collector-17",
+            "time_to_complete_seconds" to "123", "location" to "24.7,46.6")
+        responses.enqueue("stamps", "legacy-env", mapOf("score" to 5), true, null,
+            hiddenFields = stamps.mapValues { "" }, autoStampCandidates = stamps)
+        Mockito.`when`(config.surveyorId()).thenReturn("new-collector")
+        reply("""{"data":{"id":"saved"}}""")
+        assertEquals(1, responses.syncPending().synced)
+        val body = moshi.adapter(Map::class.java).fromJson(server.takeRequest().body.readUtf8())!!
+        val data = body["data"] as Map<*, *>
+        stamps.forEach { (key, value) -> assertEquals(value, data[key]) }
+    }
+
+    @Test
+    fun formbricksWelcomeSubheaderSurvivesCacheSerialization() {
+        val adapter = moshi.adapter(SurveyDto::class.java)
+        val survey = adapter.fromJson(surveyJson("welcome", "inProgress"))!!.copy(
+            welcomeCard = WelcomeCardDto(enabled = true, headline = mapOf("default" to "Hello"),
+                subheader = mapOf("default" to "<b>Welcome message</b>", "ar" to "مرحبا")))
+        val cached = adapter.fromJson(adapter.toJson(survey))!!
+        assertEquals("Welcome message", cached.welcomeCard!!.subheader.localized("default"))
+        assertEquals("مرحبا", cached.welcomeCard!!.subheader.localized("ar"))
+    }
+
     private fun reply(body: String) { server.enqueue(MockResponse().setBody(body)) }
 
     private fun surveyJson(id: String, status: String, env: String = "legacy-env", workspace: String = "workspace") =

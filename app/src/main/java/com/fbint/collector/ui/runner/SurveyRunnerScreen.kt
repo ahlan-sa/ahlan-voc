@@ -268,7 +268,7 @@ private fun WelcomePane(survey: SurveyDto?, lang: String, style: SurveyStyle, on
             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
         )
         Spacer(Modifier.height(12.dp))
-        val body = card.html.localized(lang)
+        val body = card.subheader.localized(lang).ifBlank { card.html.localized(lang) }
         if (body.isNotBlank()) Text(body, color = style.questionTextColor.copy(alpha = 0.85f))
     }
 }
@@ -467,7 +467,7 @@ private fun FooterButtons(
 ) {
     when (val stage = state.stage) {
         RunnerStage.Welcome -> Box(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
-            PrimaryButton(text = "Start", style = style, onClick = onStart)
+            PrimaryButton(text = state.survey?.welcomeCard?.buttonLabel.localized(state.language).ifBlank { "Start" }, style = style, onClick = onStart)
         }
         is RunnerStage.Question -> Row(
             modifier = Modifier.fillMaxWidth().padding(24.dp),

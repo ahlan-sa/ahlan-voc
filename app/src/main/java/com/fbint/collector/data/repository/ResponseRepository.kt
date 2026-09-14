@@ -131,8 +131,11 @@ class ResponseRepository @Inject constructor(
                 val autoStamps: Map<String, Any?> = mapAdapter.fromJson(item.autoStampsJson.orEmpty().ifBlank { "{}" }) ?: emptyMap()
                 val survey = surveyRepo.loadFromCache(item.surveyId)
                 val allowed = survey?.hiddenFields?.fieldIds.orEmpty().toSet()
-                val filteredAutoStamps = autoStamps.filterKeys { it in allowed }
-                val mergedData = filteredAutoStamps + hidden.filterValues { it != null } + finalData
+                val identity = item.surveyorId?.takeIf { it.isNotBlank() }?.let {
+                    mapOf("surveyor_id" to it, "surveyor_name" to it)
+                }.orEmpty()
+                val filteredAutoStamps = (identity + autoStamps).filterKeys { it in allowed }
+                val mergedData = hidden.filterValues { it != null && it != "" } + filteredAutoStamps + finalData
                 req = CreateResponseRequest(
                     surveyId = item.surveyId,
                     finished = item.finished,

@@ -173,6 +173,14 @@ private fun OverflowMenu(
             onClick = { expanded = false; onCheckUpdate() },
         )
         DropdownMenuItem(
+            text = { Text("Change surveyor name") },
+            onClick = { expanded = false; nav.navigate(Routes.SURVEYOR_ID) },
+        )
+        DropdownMenuItem(
+            text = { Text("Download app QR") },
+            onClick = { expanded = false; nav.navigate(Routes.DOWNLOAD_QR) },
+        )
+        DropdownMenuItem(
             text = { Text("Show setup QR") },
             onClick = { expanded = false; nav.navigate(Routes.ADMIN_QR) },
         )

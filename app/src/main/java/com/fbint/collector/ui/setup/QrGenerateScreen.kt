@@ -92,8 +92,8 @@ fun QrGenerateScreen(
     }
 }
 
-private fun encodeQr(text: String, sizePx: Int): Bitmap? = try {
-    val hints = mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M, EncodeHintType.MARGIN to 1)
+internal fun encodeQr(text: String, sizePx: Int): Bitmap? = try {
+    val hints = mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M, EncodeHintType.MARGIN to 4)
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
     val w = matrix.width; val h = matrix.height
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)

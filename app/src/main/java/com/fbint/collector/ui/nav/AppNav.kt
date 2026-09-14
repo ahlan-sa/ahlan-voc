@@ -37,6 +37,7 @@ object Routes {
     const val SPLASH = "splash"
     const val ROLE = "role"
     const val ADMIN_SETUP = "admin/setup"
+    const val DOWNLOAD_QR = "download/qr"
     const val ADMIN_QR = "admin/qr"
     const val SURVEYOR_SCAN = "surveyor/scan"
     const val SURVEYOR_ID = "surveyor/id"
@@ -70,6 +71,7 @@ fun AppNav() {
         composable(Routes.SPLASH) { SplashScreen(nav) }
         composable(Routes.ROLE) { RolePickerScreen(nav) }
         composable(Routes.ADMIN_SETUP) { AdminSetupScreen(nav) }
+        composable(Routes.DOWNLOAD_QR) { com.fbint.collector.ui.setup.DownloadQrScreen(nav) }
         composable(Routes.ADMIN_QR) { QrGenerateScreen(nav) }
         composable(Routes.SURVEYOR_SCAN) { QrScanScreen(nav) }
         composable(Routes.SURVEYOR_ID) { SurveyorIdScreen(nav) }

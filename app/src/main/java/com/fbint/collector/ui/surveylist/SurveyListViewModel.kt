@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -53,7 +56,7 @@ class SurveyListViewModel @Inject constructor(
     private val config: ConfigRepository,
     private val responseQueueDao: ResponseQueueDao,
     private val updateChecker: UpdateChecker,
-    networkMonitor: NetworkMonitor,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     private val _update = MutableStateFlow(UpdateUiState())
@@ -97,16 +100,31 @@ class SurveyListViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SurveyListState())
 
     init {
-        // First-launch refresh, in case the periodic worker hasn't run yet.
-        refresh()
+        viewModelScope.launch {
+            networkMonitor.observeOnline().collectLatest { online ->
+                if (online) {
+                    while (refreshState.value.first) delay(100)
+                    refresh()
+                    sync.requestImmediateSync()
+                } else {
+                    refreshState.update { it.first to null }
+                }
+            }
+        }
     }
 
     fun refresh() {
         if (refreshState.value.first) return
         refreshState.update { true to null }
         viewModelScope.launch {
+            if (!networkMonitor.observeOnline().first()) {
+                refreshState.value = false to null
+                return@launch
+            }
             val outcome = surveyRepo.refresh()
-            refreshState.update { false to (outcome.exceptionOrNull()?.message) }
+            val online = networkMonitor.observeOnline().first()
+            refreshState.value = false to if (online && outcome.isFailure)
+                "Could not refresh surveys. Saved surveys are available. Tap Refresh to retry." else null
         }
     }
 
