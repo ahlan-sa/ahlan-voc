@@ -10,8 +10,8 @@ data class SurveyEnvelope(val data: SurveyDto)
 
 /**
  * Mirrors the Formbricks v1 Management API survey shape. Optional fields use defaults so
- * partial responses don't crash deserialization. Newer block/element-shape surveys are not yet
- * supported (the v1 endpoint still returns the deprecated `questions[]` shape).
+ * partial responses don't crash deserialization. Formbricks 5.4.2 derives questions from
+ * blocks in its v1 compatibility API, including conversion of block jump targets.
  */
 @JsonClass(generateAdapter = true)
 data class SurveyDto(
@@ -20,6 +20,7 @@ data class SurveyDto(
     val type: String? = null,
     val status: String? = null,
     val environmentId: String,
+    val workspaceId: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null,
     val questions: List<QuestionDto> = emptyList(),

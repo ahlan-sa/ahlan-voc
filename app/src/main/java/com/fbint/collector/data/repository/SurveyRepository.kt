@@ -10,10 +10,14 @@ import com.fbint.collector.data.remote.FormbricksApiFactory
 import com.fbint.collector.data.remote.FormbricksManagementApi
 import com.fbint.collector.data.remote.dto.HiddenFieldsDto
 import com.fbint.collector.data.remote.dto.SurveyDto
+import com.fbint.collector.data.remote.dto.resolveWorkspace
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.CancellationException
+import com.fbint.collector.domain.isVisibleInApp
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,7 +38,9 @@ class SurveyRepository @Inject constructor(
     private val api: FormbricksManagementApi
         get() = factory.management { config.baseUrl() ?: "https://app.formbricks.com" }
 
-    fun observeCachedSurveys(): Flow<List<SurveyEntity>> = dao.observeAll()
+    fun observeCachedSurveys(): Flow<List<SurveyEntity>> = dao.observeAll().map { cached ->
+        cached.filter { surveyAdapter.fromJson(it.json)?.isVisibleInApp() == true }
+    }
 
     fun cachedCount(): Flow<Int> = dao.count()
 
@@ -46,22 +52,31 @@ class SurveyRepository @Inject constructor(
      */
     suspend fun refresh(): Result<Int> = runCatching {
         val key = requireNotNull(config.apiKey()) { "API key not configured" }
-        val envId = requireNotNull(config.environmentId()) { "Environment ID not configured" }
-        val list = api.listSurveys(key).data
-            .filter { it.environmentId == envId }
-            .filter { it.status?.equals("draft", ignoreCase = true) != true }
+        val enteredId = config.workspaceId() ?: requireNotNull(config.environmentId()) { "Workspace ID not configured" }
+        val currentApi = api
+        // Also repairs the interpretation of settings saved by old app versions, where a
+        // Workspace ID could be stored in the legacy environmentId preference.
+        val connection = currentApi.me(key).resolveWorkspace(enteredId)
+        val list = currentApi.listSurveys(key).data
+            .filter { it.environmentId == connection.environmentId ||
+                (connection.workspaceId != null && it.workspaceId == connection.workspaceId) }
+            // v5 rejects responses to paused/completed surveys, not just drafts.
+            .filter { it.status.equals("inProgress", ignoreCase = true) }
 
         val detailed = list.map { summary ->
             val full = if (summary.questions.isEmpty()) {
-                runCatching { api.getSurvey(key, summary.id).data }.getOrDefault(summary)
+                runCatching { currentApi.getSurvey(key, summary.id).data }
+                    .onFailure { if (it is CancellationException) throw it }.getOrDefault(summary)
             } else summary
             tryAutoRegisterHiddenFields(key, full)
         }
+        // Cache active NO surveys too: queued responses still need their language and
+        // hidden-field definitions. Visibility only controls new collection, not uploads.
         dao.upsert(detailed.map { it.toEntity() })
         dao.pruneExcept(detailed.map { it.id })
         prewarmImages(detailed)
         detailed.size
-    }
+    }.onFailure { if (it is CancellationException) throw it }
 
     suspend fun loadFromCache(id: String): SurveyDto? {
         val entity = dao.getById(id) ?: return null
@@ -104,7 +119,6 @@ class SurveyRepository @Inject constructor(
      * if offline at use time).
      */
     private fun prewarmImages(surveys: List<SurveyDto>) {
-        val loader: ImageLoader = SingletonImageLoader.get(ctx)
         val urls = surveys.flatMap { s ->
             buildList {
                 s.welcomeCard?.fileUrl?.let { add(it) }
@@ -116,6 +130,8 @@ class SurveyRepository @Inject constructor(
             }
         }.filter { it.isNotBlank() }.distinct()
 
+        if (urls.isEmpty()) return
+        val loader: ImageLoader = SingletonImageLoader.get(ctx)
         urls.forEach { url ->
             loader.enqueue(ImageRequest.Builder(ctx).data(url).build())
         }

@@ -3,6 +3,8 @@ package com.fbint.collector.ui.runner.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.fbint.collector.data.remote.dto.QuestionDto
 import com.fbint.collector.domain.localized
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RatingQuestion(
     question: QuestionDto,
@@ -24,7 +27,7 @@ fun RatingQuestion(
 ) {
     val range = (question.range ?: 5).coerceIn(2, 10)
     Column {
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {

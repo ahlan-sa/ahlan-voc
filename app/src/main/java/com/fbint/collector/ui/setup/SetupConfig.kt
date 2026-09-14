@@ -8,9 +8,12 @@ import com.squareup.moshi.Moshi
 data class SetupConfig(
     val baseUrl: String,
     val apiKey: String,
-    val environmentId: String,
-    val projectName: String?,
-)
+    val environmentId: String = "",
+    val projectName: String? = null,
+    val workspaceId: String? = null,
+) {
+    fun connectionId(): String = environmentId.ifBlank { workspaceId.orEmpty() }
+}
 
 object SetupConfigCodec {
     private val adapter = Moshi.Builder().build().adapter(SetupConfig::class.java)

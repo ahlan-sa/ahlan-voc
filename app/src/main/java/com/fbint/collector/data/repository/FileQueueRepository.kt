@@ -120,6 +120,7 @@ class FileQueueRepository @Inject constructor(
             fileName = item.fileName,
             fileType = item.mimeType,
             surveyId = item.surveyId,
+            elementId = item.questionId,
             allowedFileExtensions = ext.takeIf { it.isNotBlank() }?.let { listOf(it) },
         )
         val signed = api.requestUploadUrl(item.environmentId, req).data
@@ -181,4 +182,3 @@ class FileQueueRepository @Inject constructor(
         }
         .map { it.removePrefix(FILE_PLACEHOLDER_PREFIX) }
 }
-

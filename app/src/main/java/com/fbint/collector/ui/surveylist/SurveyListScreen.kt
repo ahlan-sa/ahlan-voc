@@ -53,7 +53,10 @@ fun SurveyListScreen(
 ) {
     val state by vm.state.collectAsState()
     val updateState by vm.updateState.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(Unit) { vm.silentlyCheckOnLaunch() }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        vm.silentlyCheckOnLaunch()
+        vm.refresh()
+    }
     UpdateDialog(updateState, vm::downloadAndInstall, vm::dismissUpdate)
 
     Scaffold(
@@ -103,7 +106,8 @@ fun SurveyListScreen(
             }
             if (state.surveys.isEmpty() && !state.refreshing) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No surveys cached yet. Tap refresh while online.")
+                    Text("No surveys enabled for this app. Set show_in_app to YES in Formbricks, then refresh while online.",
+                        modifier = Modifier.padding(24.dp))
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {

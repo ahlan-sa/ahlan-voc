@@ -56,8 +56,8 @@ class QrScanViewModel @Inject constructor(
 ) : ViewModel() {
     fun consume(payload: String): Boolean {
         val parsed = SetupConfigCodec.decode(payload) ?: return false
-        if (parsed.baseUrl.isBlank() || parsed.apiKey.isBlank() || parsed.environmentId.isBlank()) return false
-        config.saveServerConfig(parsed.baseUrl, parsed.apiKey, parsed.environmentId, parsed.projectName)
+        if (parsed.baseUrl.isBlank() || parsed.apiKey.isBlank() || parsed.connectionId().isBlank()) return false
+        config.saveServerConfig(parsed.baseUrl, parsed.apiKey, parsed.connectionId(), parsed.projectName, parsed.workspaceId)
         return true
     }
 }
@@ -122,6 +122,7 @@ fun QrScanScreen(
 }
 
 @Composable
+@androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
 private fun QrCameraPreview(onPayload: (String) -> Unit) {
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current

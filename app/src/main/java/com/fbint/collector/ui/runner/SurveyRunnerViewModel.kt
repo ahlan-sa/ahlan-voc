@@ -26,6 +26,7 @@ import com.fbint.collector.domain.defaultLanguageCode
 import com.fbint.collector.domain.initialAnswer
 import com.fbint.collector.domain.languageOptions
 import com.fbint.collector.domain.isAnswerValid
+import com.fbint.collector.domain.isVisibleInApp
 import com.fbint.collector.sync.SyncScheduler
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -87,6 +88,10 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             val survey = surveyRepo.loadFromCache(surveyId)
             if (survey == null) {
                 _state.update { it.copy(stage = RunnerStage.Error("Survey not in cache. Refresh while online.")) }
+                return@launch
+            }
+            if (!survey.isVisibleInApp()) {
+                _state.update { it.copy(stage = RunnerStage.Error("This survey is not enabled for collection in the app. Refresh the survey list.")) }
                 return@launch
             }
             val defaults = survey.variables.associate { v ->

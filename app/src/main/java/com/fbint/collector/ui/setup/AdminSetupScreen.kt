@@ -41,7 +41,7 @@ fun AdminSetupScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Top,
         ) {
-            Text("Enter your Formbricks server, then a personal API key. We'll validate the key, then ask which environment to push responses to.")
+            Text("Enter your Formbricks server, API key, and Workspace ID. We'll check that the key can access that workspace. Legacy Environment IDs also work.")
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(
                 value = state.baseUrl,
@@ -63,10 +63,10 @@ fun AdminSetupScreen(
             )
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
-                value = state.environmentId,
-                onValueChange = vm::onEnvIdChange,
-                label = { Text("Environment ID") },
-                placeholder = { Text("Find in Formbricks → Settings → Environments") },
+                value = state.workspaceId,
+                onValueChange = vm::onWorkspaceIdChange,
+                label = { Text("Workspace ID") },
+                placeholder = { Text("Copy from your workspace's connection settings") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -77,7 +77,7 @@ fun AdminSetupScreen(
             }
             if (state.successProjectName != null) {
                 Spacer(Modifier.height(12.dp))
-                Text("Connected to project: ${state.successProjectName}")
+                Text("Connected to workspace: ${state.successProjectName}")
             }
 
             Spacer(Modifier.height(24.dp))

@@ -5,8 +5,8 @@ Android app for offline Formbricks survey collection at stadiums in KSA. Surveyo
 ## Capabilities
 
 **Onboarding**
-- Admin device fetches surveys, validates the API key, generates a setup QR (server URL + environment ID + read-only API key + project name).
-- Surveyor devices scan the QR, enter their staff ID, and the app caches every survey in the configured environment to local storage.
+- Admin device validates the API key and Workspace ID together, then generates a setup QR containing both the workspace and legacy environment mapping. Existing Environment IDs and older setup QRs remain supported.
+- Surveyor devices scan the QR, enter their staff ID, and the app caches active surveys in the configured workspace. Paused, completed, and draft surveys are excluded because the current client API rejects their submissions.
 - Image assets (welcome card, ending card, picture-selection thumbnails) are pre-warmed into Coil's 256 MB disk cache during refresh, so they render at the venue with no connectivity.
 
 **Question types — v1 covers every type Formbricks v1 emits:**
@@ -17,6 +17,8 @@ Android app for offline Formbricks survey collection at stadiums in KSA. Surveyo
 | `multipleChoiceSingle` | radio list with "other" free-text support | `string` (label) |
 | `multipleChoiceMulti` | checkbox list with "other" free-text support | `string[]` (labels) |
 | `rating` | chip strip 1..N with low/high labels | `number` |
+| `csat` | scores 1..5 with localized low/high labels | `number` |
+| `ces` | scores 1..5 or 1..7 with localized low/high labels | `number` |
 | `nps` | chip strip 0..10 with low/high labels | `number` |
 | `cta` | primary + dismiss button | `"clicked"` / `""` |
 | `consent` | single checkbox card | `"accepted"` / `""` |
@@ -91,10 +93,10 @@ The APK is at `app/build/outputs/apk/debug/app-debug.apk`. Install with `adb ins
 
 ### Admin (one device, online, one-time per project)
 
-1. In Formbricks, **Settings → API keys** → create a key with **Read** permission on the project + environment that holds the surveys you want collected. Copy the key now — you cannot retrieve it later.
-2. Find the **environment ID** in **Settings → Environments**.
+1. In Formbricks, create an API key with **Read** permission for the workspace that holds the surveys. The legacy `/me` endpoint used by this app requires a key scoped to exactly one workspace.
+2. Copy the **Workspace ID** from the workspace's connection settings. Legacy Environment IDs also work.
 3. Install Ahlan VOC on the admin device, open it, choose **Admin**.
-4. Enter base URL (`https://ksa.formbricks.com`), the API key, the environment ID. Tap **Validate & continue** — the app calls `/api/v1/management/me` to confirm and pulls the project name.
+4. Enter base URL (`https://ksa.formbricks.com`), the API key, and Workspace ID. Tap **Validate & continue** — the app verifies the ID belongs to the key and resolves the legacy ID needed by existing cached surveys and queued responses.
 5. The next screen shows the **setup QR**. Hand each surveyor's device to them and have them scan it.
 
 ### Surveyor (one-time per device)
@@ -110,6 +112,17 @@ The APK is at `app/build/outputs/apk/debug/app-debug.apk`. Install with `adb ins
 - File-upload questions copy each picked file into private app storage immediately; the queue sends them once a network is back.
 - Whenever the device sees a network, WorkManager wakes up: files first, then responses (a response only POSTs once every file it depends on has uploaded).
 - Tap the cloud icon to open **Sync status** for live counts and a manual **Sync now**.
+
+### Choose which surveys appear in the app
+
+In Formbricks, edit the survey, open **Questions**, scroll to **Variables**, and set the Text variable `show_in_app`'s **Initial value** to `YES` or `NO`. Save the survey, then refresh the app while online.
+
+- `YES`: the active survey appears on every device after refresh.
+- `NO` (or no variable): the survey is hidden from new collection in this app. Existing queued responses still upload and retain access to cached survey metadata.
+- Draft, paused, and completed surveys remain hidden even with `YES`.
+- This does not change the survey's Formbricks status or disable its web link. Offline devices keep their last refreshed settings. Do not use survey logic to change this administrator setting.
+
+Survey visibility is supported in v0.5.2 and newer; v0.5.1 ignores this variable.
 
 ### Recovering a stuck device
 
@@ -205,5 +218,7 @@ Regression check: `./gradlew :app:testDebugUnitTest`. The Room + mock HTTP serve
 ## Known limits
 
 - Cal.com bookings render an offline-friendly "mark as booked" card because the iframe can't load offline. If you need true Cal scheduling, the surveyor should hand the respondent a phone with connectivity for that step.
-- The newer block/element survey shape isn't ingested yet — the v1 management API still emits the deprecated `questions[]` form, which is what we read.
+- The app uses Formbricks' v1 compatibility API. In 5.4.2 it derives `questions[]` from blocks and translates jump targets. The app presents one question per screen, rather than reproducing multi-element block layouts.
 - `requireAnswer` logic actions are no-ops; static `required` is always honoured. (The runtime mutation is rare in field-collection workflows and would complicate offline state.)
+- Custom v5 validation rules, PIN/reCAPTCHA/email verification flows, single-use links, and quota endings are not fully implemented in the offline runner. These need separate support before using surveys that depend on them. See [compatibility review](docs/formbricks-5.4.2-compatibility.md).
+- Surveyor IDs are sent through declared `surveyor_id` hidden fields, not as respondent `userId` values (which v5 gates behind Contacts licensing). Add that hidden field when using a read-only API key if collector attribution is required.

@@ -7,6 +7,7 @@ data class UploadFileRequest(
     val fileName: String,
     val fileType: String,
     val surveyId: String,
+    val elementId: String,
     val allowedFileExtensions: List<String>? = null,
 )
 

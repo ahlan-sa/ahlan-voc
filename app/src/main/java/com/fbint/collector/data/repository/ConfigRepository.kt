@@ -40,15 +40,21 @@ class ConfigRepository @Inject constructor(
     fun baseUrl(): String? = prefs.getString(KEY_BASE_URL, null)
     fun apiKey(): String? = prefs.getString(KEY_API_KEY, null)
     fun environmentId(): String? = prefs.getString(KEY_ENV_ID, null)
+    fun workspaceId(): String? = prefs.getString(KEY_WORKSPACE_ID, null)
     fun projectName(): String? = prefs.getString(KEY_PROJECT_NAME, null)
     fun surveyorId(): String? = prefs.getString(KEY_SURVEYOR_ID, null)
 
-    fun saveServerConfig(baseUrl: String, apiKey: String, environmentId: String, projectName: String?) {
+    fun saveServerConfig(
+        baseUrl: String, apiKey: String, environmentId: String, projectName: String?,
+        workspaceId: String? = null,
+    ) {
         prefs.edit()
             .putString(KEY_BASE_URL, baseUrl.trim().trimEnd('/'))
             .putString(KEY_API_KEY, apiKey.trim())
             .putString(KEY_ENV_ID, environmentId.trim())
+            .putString(KEY_WORKSPACE_ID, workspaceId?.trim()?.takeIf { it.isNotBlank() })
             .putString(KEY_PROJECT_NAME, projectName)
+            .remove(KEY_KEY_READONLY)
             .apply()
     }
 
@@ -125,6 +131,7 @@ class ConfigRepository @Inject constructor(
         const val KEY_BASE_URL = "base_url"
         const val KEY_API_KEY = "api_key"
         const val KEY_ENV_ID = "env_id"
+        const val KEY_WORKSPACE_ID = "workspace_id"
         const val KEY_PROJECT_NAME = "project_name"
         const val KEY_SURVEYOR_ID = "surveyor_id"
         const val KEY_INSTALL_ID = "device_install_id"

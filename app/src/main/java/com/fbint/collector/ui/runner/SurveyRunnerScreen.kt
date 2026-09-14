@@ -320,7 +320,7 @@ private fun QuestionPane(
                 @Suppress("UNCHECKED_CAST")
                 ChoiceMultiQuestion(question, lang, answer as? List<String>, onAnswer)
             }
-            QType.RATING -> RatingQuestion(question, lang, (answer as? Number)?.toInt(), onAnswer)
+            QType.RATING, QType.CSAT, QType.CES -> RatingQuestion(question, lang, (answer as? Number)?.toInt(), onAnswer)
             QType.NPS -> NpsQuestion(question, lang, (answer as? Number)?.toInt(), onAnswer)
             QType.CTA -> CtaQuestion(question, lang, answer as? String, onAnswer)
             QType.CONSENT -> ConsentQuestion(question, lang, answer as? String, onAnswer)

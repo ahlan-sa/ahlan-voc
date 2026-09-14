@@ -45,7 +45,7 @@ class QrGenerateViewModel @Inject constructor(
         val apiKey = config.apiKey() ?: return null
         val envId = config.environmentId() ?: return null
         val name = config.projectName()
-        return SetupConfigCodec.encode(SetupConfig(baseUrl, apiKey, envId, name))
+        return SetupConfigCodec.encode(SetupConfig(baseUrl, apiKey, envId, name, config.workspaceId()))
     }
 }
 
@@ -65,7 +65,7 @@ fun QrGenerateScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                "Have each surveyor scan this code from their device. It encodes the server URL, environment ID, and a read-only API key — keep it private.",
+                "Have each surveyor scan this code from their device. It includes the server, workspace settings, and API key — keep it private.",
             )
             Spacer(Modifier.height(20.dp))
             Box(

@@ -25,6 +25,7 @@ playLocation = "21.3.0"
 junit = "4.13.2"
 robolectric = "4.14.1"
 mockito = "5.15.2"
+desugar = "2.1.4"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -84,6 +85,7 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
 mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

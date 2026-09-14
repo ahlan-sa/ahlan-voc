@@ -9,6 +9,8 @@ object QType {
     const val CHOICE_SINGLE = "multipleChoiceSingle"
     const val CHOICE_MULTI = "multipleChoiceMulti"
     const val RATING = "rating"
+    const val CSAT = "csat"
+    const val CES = "ces"
     const val NPS = "nps"
     const val CTA = "cta"
     const val CONSENT = "consent"
@@ -20,6 +22,10 @@ object QType {
     const val ADDRESS = "address"
     const val CONTACT_INFO = "contactInfo"
     const val RANKING = "ranking"
+
+    val supported = setOf(OPEN_TEXT, CHOICE_SINGLE, CHOICE_MULTI, RATING, CSAT, CES,
+        NPS, CTA, CONSENT, PICTURE_SELECTION, DATE, FILE_UPLOAD, CAL, MATRIX,
+        ADDRESS, CONTACT_INFO, RANKING)
 }
 
 /**
@@ -103,7 +109,14 @@ fun QuestionDto.isAnswerValid(answer: Any?): Boolean {
         QType.OPEN_TEXT -> (answer as? String)?.isNotBlank() == true
         QType.CHOICE_SINGLE -> (answer as? String)?.isNotBlank() == true
         QType.CHOICE_MULTI -> (answer as? List<*>)?.isNotEmpty() == true
-        QType.RATING, QType.NPS -> answer is Number
+        QType.RATING, QType.CSAT, QType.CES -> {
+            val score = (answer as? Number)?.toDouble() ?: return false
+            score % 1.0 == 0.0 && score >= 1 && score <= (range ?: 5)
+        }
+        QType.NPS -> {
+            val score = (answer as? Number)?.toDouble() ?: return false
+            score % 1.0 == 0.0 && score in 0.0..10.0
+        }
         QType.CTA -> answer == "clicked"
         QType.CONSENT -> answer == "accepted"
         QType.PICTURE_SELECTION -> (answer as? List<*>)?.isNotEmpty() == true

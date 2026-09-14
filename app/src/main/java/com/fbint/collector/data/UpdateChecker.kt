@@ -93,9 +93,11 @@ class UpdateChecker @Inject constructor(
         target
     }
 
-    fun canInstallPackages(): Boolean = ctx.packageManager.canRequestPackageInstalls()
+    fun canInstallPackages(): Boolean = android.os.Build.VERSION.SDK_INT < 26 ||
+        ctx.packageManager.canRequestPackageInstalls()
 
     fun openInstallSettings() {
+        if (android.os.Build.VERSION.SDK_INT < 26) return
         val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
             .setData(android.net.Uri.parse("package:${ctx.packageName}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

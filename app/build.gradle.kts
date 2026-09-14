@@ -17,8 +17,8 @@ android {
         targetSdk = 35
         // Bump versionCode + versionName for every release; the in-app updater compares
         // versionName against the GitHub release tag (after stripping leading "v").
-        versionCode = 10
-        versionName = "0.5.1"
+        versionCode = 11
+        versionName = "0.5.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -34,18 +34,23 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
     testOptions.unitTests.isIncludeAndroidResources = true
+    testOptions.unitTests.all {
+        it.systemProperty("fbint.compatibilityFixtures", providers.gradleProperty("compatibilityFixtures").getOrElse(""))
+    }
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/DEPENDENCIES")
     }
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.viewmodel.compose)

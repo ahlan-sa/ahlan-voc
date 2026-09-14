@@ -137,7 +137,9 @@ class ResponseRepository @Inject constructor(
                     surveyId = item.surveyId,
                     finished = item.finished,
                     data = mergedData,
-                    userId = item.surveyorId?.takeIf { it.isNotBlank() },
+                    // Surveyors are collectors, not respondent contacts. v5 gates userId
+                    // behind Contacts licensing; retain collector attribution in stamps.
+                    userId = null,
                     meta = mapOf(
                         "source" to "fbint:${item.clientUuid}",
                         "surveyor" to item.surveyorId.orEmpty(),
