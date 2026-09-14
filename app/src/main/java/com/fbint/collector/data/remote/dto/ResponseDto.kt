@@ -32,4 +32,10 @@ data class CreateDisplayRequest(
 data class ResponseHistoryEnvelope(val data: List<ResponseHistoryItem>)
 
 @JsonClass(generateAdapter = true)
-data class ResponseHistoryItem(val id: String, val meta: Map<String, Any?>? = null)
+data class ResponseHistoryItem(
+    val id: String,
+    val meta: Map<String, Any?>? = null,
+    val createdAt: String? = null,
+    val finished: Boolean = false,
+    val data: Map<String, Any?> = emptyMap(),
+)

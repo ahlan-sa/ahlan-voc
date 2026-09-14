@@ -61,6 +61,30 @@ class RunnerRecoveryTest {
         assertEquals(1.0, vm.state.value.variables["counter"])
 
     }
+    @Test fun discardDeletesOnlyDraftAndExitsWithoutSubmittingOrRestarting() = runBlocking {
+        val surveys = mock(SurveyRepository::class.java)
+        val config = mock(ConfigRepository::class.java)
+        val responses = mock(ResponseRepository::class.java)
+        val files = mock(FileQueueRepository::class.java)
+        `when`(surveys.loadFromCache("survey")).thenReturn(SurveyDto("survey", "Example", environmentId = "env",
+            status = "inProgress", variables = listOf(VariableDto("visible", "show_in_app", "text", "YES")),
+            hiddenFields = HiddenFieldsDto(true, AUTO_STAMPED_HIDDEN_FIELD_IDS.toList()),
+            questions = listOf(QuestionDto("question", "openText"))))
+        val vm = SurveyRunnerViewModel("survey", surveys, responses, files, config,
+            mock(SyncScheduler::class.java), mock(LocationProvider::class.java),
+            mock(NetworkMonitor::class.java), mock(ResponseQueueDao::class.java))
+        shadowOf(Looper.getMainLooper()).idle()
+        vm.setAnswer("question", "Discard this draft")
+        var exited = false
+        vm.discardAndExit { exited = true }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(exited)
+        verify(config).deleteDraft("survey")
+        verify(files).discardUnboundFiles("survey")
+        verify(surveys, times(1)).loadFromCache("survey")
+        verifyNoInteractions(responses)
+    }
+
     @Test fun failedDownloadMustReturnNull() = runBlocking {
         val server = okhttp3.mockwebserver.MockWebServer()
         server.start()

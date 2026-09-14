@@ -8,6 +8,7 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.fbint.collector.data.local.AppDatabase
 import com.fbint.collector.data.local.entity.QueuedFileEntity
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,6 +48,24 @@ class QueueMigrationTest {
                 assertEquals("pending", db.queuedFileDao().getById("file")!!.boundResponseUuid)
             } finally { db.close(); context.deleteDatabase(name) }
         }
+    }
+
+    @Test fun todayCounterIncludesPendingAndSyncedButExcludesOtherPeopleServersAndDays() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), AppDatabase::class.java).build()
+        try {
+            val dao = db.responseQueueDao()
+            val base = com.fbint.collector.data.local.entity.QueuedResponseEntity(
+                clientUuid = "pending", surveyId = "survey", environmentId = "env", surveyorId = "Essam",
+                finished = true, language = null, dataJson = "{}", capturedAt = 1000, serverBaseUrl = "https://server")
+            dao.insert(base)
+            dao.insert(base.copy(clientUuid = "synced", syncedAt = 1100))
+            dao.insert(base.copy(clientUuid = "other-person", surveyorId = "Other"))
+            dao.insert(base.copy(clientUuid = "other-server", serverBaseUrl = "https://other"))
+            dao.insert(base.copy(clientUuid = "tomorrow", capturedAt = 2000))
+            dao.insert(base.copy(clientUuid = "incomplete", finished = false))
+            val rows = dao.observeDailyResponses("Essam", "env", "https://server", false, 1000, 2000).first()
+            assertEquals(setOf("pending", "synced"), rows.map { it.clientUuid }.toSet())
+        } finally { db.close() }
     }
 
     @Test fun fileClaimsAreAtomicAndUnfinishedAttachmentsStayLocal() = runBlocking {

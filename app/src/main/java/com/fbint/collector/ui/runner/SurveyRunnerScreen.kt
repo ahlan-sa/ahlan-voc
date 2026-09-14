@@ -119,10 +119,23 @@ private fun SurveyRunnerContent(nav: NavHostController, surveyId: String) {
     }
     if (confirmExit) {
         androidx.compose.material3.AlertDialog(onDismissRequest = { confirmExit = false },
-            title = { Text("Save and leave?") },
-            text = { Text("You can resume this response when you reopen the survey.") },
-            confirmButton = { TextButton(onClick = { confirmExit = false; if (vm.saveAndExit()) nav.popBackStack() }) { Text("Save and leave") } },
-            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("Keep collecting") } })
+            title = { Text("Leave this response?") },
+            text = { Text("Save your progress to resume later, or discard this unfinished response. Discarded answers cannot be recovered.") },
+            confirmButton = {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Button(modifier = Modifier.fillMaxWidth(), onClick = {
+                        confirmExit = false
+                        if (vm.saveAndExit()) nav.popBackStack()
+                    }) { Text("Save and leave") }
+                    OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
+                        confirmExit = false
+                        vm.discardAndExit { nav.popBackStack() }
+                    }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                        Text("Discard and exit")
+                    }
+                    TextButton(modifier = Modifier.fillMaxWidth(), onClick = { confirmExit = false }) { Text("Keep collecting") }
+                }
+            })
     }
     CompositionLocalProvider(LocalLayoutDirection provides direction) {
     Scaffold(

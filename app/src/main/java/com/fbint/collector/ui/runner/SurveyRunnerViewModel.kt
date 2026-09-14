@@ -368,6 +368,24 @@ class SurveyRunnerViewModel @AssistedInject constructor(
         return cal.timeInMillis
     }
 
+    fun discardAndExit(onDiscarded: () -> Unit) {
+        if (_state.value.stage == RunnerStage.Submitting) return
+        viewModelScope.launch {
+            try {
+                config.deleteDraft(surveyId)
+                // Only unfinished, unbound attachments belong to this draft.
+                try { fileRepo.discardUnboundFiles(surveyId) }
+                catch (t: Exception) { if (t is kotlinx.coroutines.CancellationException) throw t }
+                receiptJob?.cancel()
+                backStack.clear()
+                onDiscarded()
+            } catch (t: Exception) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                _state.update { it.copy(validationError = "Could not discard this draft. Please try again.") }
+            }
+        }
+    }
+
     fun reset() {
         receiptJob?.cancel()
         config.deleteDraft(surveyId)

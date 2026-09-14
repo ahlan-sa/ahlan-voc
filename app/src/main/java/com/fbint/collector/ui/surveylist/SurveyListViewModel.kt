@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.delay
@@ -29,6 +31,10 @@ import javax.inject.Inject
 
 data class SurveyListState(
     val surveys: List<SurveyEntity> = emptyList(),
+    val todayResponses: Int = 0,
+    val teamPerformance: com.fbint.collector.data.repository.TeamPerformanceSnapshot? = null,
+    val teamRefreshing: Boolean = false,
+    val teamError: Boolean = false,
     val pinnedSurveyIds: Set<String> = emptySet(),
     val offlineReadyIds: Set<String> = emptySet(),
     val savedDefinitionIds: Set<String> = emptySet(),
@@ -61,6 +67,7 @@ class SurveyListViewModel @Inject constructor(
     private val responseQueueDao: ResponseQueueDao,
     private val updateChecker: UpdateChecker,
     private val networkMonitor: NetworkMonitor,
+    private val teamRepo: com.fbint.collector.data.repository.TeamPerformanceRepository,
 ) : ViewModel() {
 
     private val _update = MutableStateFlow(UpdateUiState())
@@ -76,6 +83,40 @@ class SurveyListViewModel @Inject constructor(
 
     private val refreshState = MutableStateFlow(false to (null as String?))
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val todayRows = kotlinx.coroutines.flow.flow {
+        while (true) {
+            val start = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+            }
+            val end = (start.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, 1) }
+            emit(listOf(start.timeInMillis.toString(), end.timeInMillis.toString(), config.surveyorId().orEmpty(),
+                config.environmentId().orEmpty(), config.baseUrl().orEmpty(), config.legacyQueueServer().orEmpty()))
+            delay(30_000)
+        }
+    }.distinctUntilChanged().flatMapLatest { values ->
+        responseQueueDao.observeDailyResponses(values[2], values[3], values[4], values[4] == values[5], values[0].toLong(), values[1].toLong())
+    }
+
+    private data class TeamState(val snapshot: com.fbint.collector.data.repository.TeamPerformanceSnapshot?, val refreshing: Boolean = false, val failed: Boolean = false)
+    private val teamState = MutableStateFlow(TeamState(teamRepo.cached()))
+    private fun refreshTeam() {
+        if (teamState.value.refreshing) return
+        teamState.update { it.copy(refreshing = true, failed = false) }
+        viewModelScope.launch {
+            try {
+                if (networkMonitor.observeOnline().first()) {
+                    val snapshot = teamRepo.refresh()
+                    teamState.value = TeamState(snapshot)
+                }
+            } catch (t: Exception) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                teamState.update { it.copy(failed = true) }
+            } finally { teamState.update { it.copy(refreshing = false) } }
+        }
+    }
+
     val state: StateFlow<SurveyListState> = combine(
         surveyRepo.observeCachedSurveys(),
         responseRepo.pendingCount(),
@@ -85,6 +126,8 @@ class SurveyListViewModel @Inject constructor(
         networkMonitor.observeOnline(),
         responseQueueDao.observePerSurveyCounts(),
         pinnedIds,
+        todayRows,
+        teamState,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val surveys = values[0] as List<SurveyEntity>
@@ -100,9 +143,20 @@ class SurveyListViewModel @Inject constructor(
         val perSurvey = (values[6] as List<PerSurveyCount>).associateBy { it.surveyId }
         @Suppress("UNCHECKED_CAST")
         val pins = values[7] as Set<String>
+        @Suppress("UNCHECKED_CAST")
+        val localToday = values[8] as List<com.fbint.collector.data.local.DailyResponseIdentity>
+        val team = values[9] as TeamState
+        val snapshot = team.snapshot?.takeIf {
+            it.dayStart == com.fbint.collector.data.repository.TeamPerformanceRepository.todayStart() && it.collector == config.surveyorId().orEmpty()
+        }
+        val ownTotal = (localToday.map { "fbint:${it.clientUuid}" } + snapshot?.ownSources.orEmpty()).toSet().size
         SurveyListState(
             surveys = surveys.sortedByDescending { it.id in pins },
             pinnedSurveyIds = pins,
+            todayResponses = ownTotal,
+            teamPerformance = snapshot,
+            teamRefreshing = team.refreshing,
+            teamError = team.failed,
             offlineReadyIds = surveys.filter(surveyRepo::isOfflineReady).map { it.id }.toSet(),
             savedDefinitionIds = surveys.filter(surveyRepo::hasSavedDefinition).map { it.id }.toSet(),
             pendingResponses = pending,
@@ -119,6 +173,9 @@ class SurveyListViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            while (true) { refreshTeam(); delay(5 * 60_000L) }
+        }
+        viewModelScope.launch {
             networkMonitor.observeOnline().collectLatest { online ->
                 if (online) {
                     while (refreshState.value.first) delay(100)
@@ -132,6 +189,7 @@ class SurveyListViewModel @Inject constructor(
     }
 
     fun refresh() {
+        refreshTeam()
         if (refreshState.value.first) return
         refreshState.update { true to null }
         viewModelScope.launch {

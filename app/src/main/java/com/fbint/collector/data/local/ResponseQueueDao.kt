@@ -65,8 +65,13 @@ interface ResponseQueueDao {
     @Query("SELECT surveyId, COUNT(*) AS total, SUM(CASE WHEN syncedAt IS NULL THEN 1 ELSE 0 END) AS pending FROM queued_responses GROUP BY surveyId")
     fun observePerSurveyCounts(): Flow<List<PerSurveyCount>>
 
+    @Query("SELECT clientUuid, serverResponseId FROM queued_responses WHERE finished = 1 AND surveyorId = :surveyorId AND environmentId = :environmentId AND (serverBaseUrl = :server OR (serverBaseUrl IS NULL AND :includeLegacy)) AND capturedAt >= :fromMs AND capturedAt < :toMs")
+    fun observeDailyResponses(surveyorId: String, environmentId: String, server: String, includeLegacy: Boolean, fromMs: Long, toMs: Long): Flow<List<DailyResponseIdentity>>
+
     @Query("SELECT COUNT(*) FROM queued_responses WHERE surveyorId = :surveyorId AND capturedAt >= :sinceMs")
     suspend fun countSince(surveyorId: String, sinceMs: Long): Int
 }
 
 data class PerSurveyCount(val surveyId: String, val total: Int, val pending: Int)
+
+data class DailyResponseIdentity(val clientUuid: String, val serverResponseId: String?)

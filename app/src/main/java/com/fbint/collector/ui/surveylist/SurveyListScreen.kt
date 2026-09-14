@@ -94,10 +94,34 @@ fun SurveyListScreen(
                 online = state.online,
                 onSyncNow = vm::syncNow,
             )
+            val team = state.teamPerformance
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("${state.todayResponses}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                    Text("Your responses today", style = MaterialTheme.typography.labelMedium)
+                    Text(if (team == null) "This device · includes offline" else "Includes your offline responses", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(if (team != null && team.activeCollectors > 0)
+                        String.format(java.util.Locale.getDefault(), "%.1f", team.totalResponses.toDouble() / team.activeCollectors) else "—",
+                        style = MaterialTheme.typography.titleLarge)
+                    Text("Team average today", style = MaterialTheme.typography.labelMedium)
+                    Text(when {
+                        team != null -> "${team.activeCollectors} active · synced " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(team.updatedAt)) +
+                            (if (!state.online || state.teamError) " · saved" else "")
+                        state.teamRefreshing -> "Updating team totals…"
+                        !state.online -> "Connect for team totals"
+                        else -> "Team totals unavailable"
+                    }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             state.surveys.maxOfOrNull { it.cachedAt }?.let { time ->
-                Text("Surveys saved " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
+                Text("Updated " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
                     java.text.DateFormat.SHORT).format(java.util.Date(time)),
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             }
             if (state.refreshing) {
                 Row(
@@ -126,39 +150,34 @@ fun SurveyListScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 6.dp)
+                                .padding(vertical = 4.dp)
                                 .alpha(if (canOpen) 1f else 0.5f)
                                 .clickable(enabled = canOpen) { vm.onSurveyTapped(survey, nav) },
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    Text(survey.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                    val pinned = survey.id in state.pinnedSurveyIds
-                                    androidx.compose.material3.IconToggleButton(checked = pinned,
-                                        onCheckedChange = { vm.toggleSurveyPin(survey.id) }) {
-                                        Icon(if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                            contentDescription = if (pinned) "Unpin ${survey.name}" else "Pin ${survey.name} to top",
-                                            tint = if (pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(survey.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        when {
+                                            offlineReady -> "Available offline"
+                                            survey.id !in state.savedDefinitionIds -> if (state.online) "Not ready — refresh surveys" else "Connect to download"
+                                            state.online -> "Online only — download incomplete"
+                                            else -> "Connect to download"
+                                        }, style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (counts != null && counts.total > 0) {
+                                        Text("${counts.total - counts.pending} synced · ${counts.pending} pending",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (counts.pending > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    when {
-                                        offlineReady -> "Available offline"
-                                        survey.id !in state.savedDefinitionIds -> if (state.online) "Not ready — refresh surveys" else "Connect to download"
-                                        state.online -> "Online only — offline download incomplete"
-                                        else -> "Connect to download"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                                if (counts != null) {
-                                    Spacer(Modifier.height(6.dp))
-                                    val syncedNow = counts.total - counts.pending
-                                    Text(
-                                        "Captured: ${counts.total}  •  Synced: $syncedNow  •  Pending: ${counts.pending}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
+                                val pinned = survey.id in state.pinnedSurveyIds
+                                androidx.compose.material3.IconToggleButton(checked = pinned,
+                                    onCheckedChange = { vm.toggleSurveyPin(survey.id) }) {
+                                    Icon(if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                        contentDescription = if (pinned) "Unpin ${survey.name}" else "Pin ${survey.name} to top",
+                                        tint = if (pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -302,9 +321,9 @@ private fun QueueBanner(
     online: Boolean,
     onSyncNow: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -312,11 +331,10 @@ private fun QueueBanner(
                     StatusDot(online = online)
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (online) "Online" else "Offline",
+                        text = (if (online) "Online" else "Offline") + " · $pending pending · $synced synced",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Text("Queue: $pending pending  •  $synced synced", style = MaterialTheme.typography.bodyMedium)
                 if (struggling > 0) {
                     Text("$struggling struggling — tap sync to retry", style = MaterialTheme.typography.bodySmall)
                 }

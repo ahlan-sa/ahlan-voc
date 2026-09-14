@@ -50,7 +50,11 @@ class ConfigRepository @Inject constructor(
     fun saveDraft(id: String, json: String) {
         check(prefs.edit().putString(draftKey(id), json).commit()) { "Unable to save draft. Check device storage." }
     }
-    fun deleteDraft(id: String) { prefs.edit().remove(draftKey(id)).commit() }
+    fun deleteDraft(id: String) { check(prefs.edit().remove(draftKey(id)).commit()) { "Could not remove saved draft." } }
+
+    private fun performanceKey() = "performance:${baseUrl()}:${workspaceId() ?: environmentId()}:${surveyorId()}"
+    fun loadPerformanceSnapshot(): String? = prefs.getString(performanceKey(), null)
+    fun savePerformanceSnapshot(json: String) { prefs.edit().putString(performanceKey(), json).apply() }
 
     private fun pinnedSurveysKey() = "pinned_surveys:${baseUrl()}:${workspaceId() ?: environmentId()}"
     fun pinnedSurveyIds(): Set<String> = prefs.getStringSet(pinnedSurveysKey(), emptySet()).orEmpty().toSet()
