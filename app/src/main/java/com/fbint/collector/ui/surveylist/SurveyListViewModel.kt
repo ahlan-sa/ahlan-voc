@@ -28,6 +28,7 @@ import javax.inject.Inject
 
 data class SurveyListState(
     val surveys: List<SurveyEntity> = emptyList(),
+    val pinnedSurveyIds: Set<String> = emptySet(),
     val pendingResponses: Int = 0,
     val syncedResponses: Int = 0,
     val strugglingResponses: Int = 0,
@@ -62,6 +63,14 @@ class SurveyListViewModel @Inject constructor(
     private val _update = MutableStateFlow(UpdateUiState())
     val updateState: StateFlow<UpdateUiState> = _update.asStateFlow()
 
+    private val pinnedIds = MutableStateFlow(config.pinnedSurveyIds())
+
+    fun toggleSurveyPin(id: String) {
+        val updated = pinnedIds.value.let { if (id in it) it - id else it + id }
+        config.savePinnedSurveyIds(updated)
+        pinnedIds.value = updated
+    }
+
     private val refreshState = MutableStateFlow(false to (null as String?))
 
     val state: StateFlow<SurveyListState> = combine(
@@ -72,6 +81,7 @@ class SurveyListViewModel @Inject constructor(
         refreshState,
         networkMonitor.observeOnline(),
         responseQueueDao.observePerSurveyCounts(),
+        pinnedIds,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val surveys = values[0] as List<SurveyEntity>
@@ -85,8 +95,11 @@ class SurveyListViewModel @Inject constructor(
         val online = values[5] as Boolean
         @Suppress("UNCHECKED_CAST")
         val perSurvey = (values[6] as List<PerSurveyCount>).associateBy { it.surveyId }
+        @Suppress("UNCHECKED_CAST")
+        val pins = values[7] as Set<String>
         SurveyListState(
-            surveys = surveys,
+            surveys = surveys.sortedByDescending { it.id in pins },
+            pinnedSurveyIds = pins,
             pendingResponses = pending,
             syncedResponses = synced,
             strugglingResponses = struggling,

@@ -32,6 +32,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -129,7 +131,16 @@ fun SurveyListScreen(
                                 .clickable { vm.onSurveyTapped(survey, nav) },
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text(survey.name, style = MaterialTheme.typography.titleMedium)
+                                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(survey.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                    val pinned = survey.id in state.pinnedSurveyIds
+                                    androidx.compose.material3.IconToggleButton(checked = pinned,
+                                        onCheckedChange = { vm.toggleSurveyPin(survey.id) }) {
+                                        Icon(if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                            contentDescription = if (pinned) "Unpin ${survey.name}" else "Pin ${survey.name} to top",
+                                            tint = if (pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     "Available offline",

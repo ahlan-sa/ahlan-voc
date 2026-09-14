@@ -52,6 +52,12 @@ class ConfigRepository @Inject constructor(
     }
     fun deleteDraft(id: String) { prefs.edit().remove(draftKey(id)).commit() }
 
+    private fun pinnedSurveysKey() = "pinned_surveys:${baseUrl()}:${workspaceId() ?: environmentId()}"
+    fun pinnedSurveyIds(): Set<String> = prefs.getStringSet(pinnedSurveysKey(), emptySet()).orEmpty().toSet()
+    fun savePinnedSurveyIds(ids: Set<String>) {
+        prefs.edit().putStringSet(pinnedSurveysKey(), ids.toSet()).apply()
+    }
+
     fun hasAdminPassword(): Boolean = prefs.contains("admin_password")
 
     fun saveAdminPassword(password: String) {
