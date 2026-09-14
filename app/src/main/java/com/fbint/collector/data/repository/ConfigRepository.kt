@@ -52,6 +52,18 @@ class ConfigRepository @Inject constructor(
     }
     fun deleteDraft(id: String) { prefs.edit().remove(draftKey(id)).commit() }
 
+    fun hasAdminPassword(): Boolean = prefs.contains("admin_password")
+
+    fun saveAdminPassword(password: String) {
+        require(password.length >= 4) { "Use at least 4 characters." }
+        check(prefs.edit().putString("admin_password", password).commit()) { "Could not save password. Try again." }
+    }
+
+    fun verifyAdminPassword(password: String): Boolean {
+        val saved = prefs.getString("admin_password", null) ?: return false
+        return java.security.MessageDigest.isEqual(password.toByteArray(Charsets.UTF_8), saved.toByteArray(Charsets.UTF_8))
+    }
+
     fun baseUrl(): String? = prefs.getString(KEY_BASE_URL, null)
     fun apiKey(): String? = prefs.getString(KEY_API_KEY, null)
     fun environmentId(): String? = prefs.getString(KEY_ENV_ID, null)

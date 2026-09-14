@@ -79,7 +79,7 @@ fun SurveyListScreen(
                     IconButton(onClick = vm::refresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
-                    OverflowMenu(nav = nav, onReset = vm::resetDevice, onCheckUpdate = vm::checkForUpdate, pending = state.pendingResponses, verifyAdmin = vm::verifyAdminKey)
+                    OverflowMenu(nav = nav, onReset = vm::resetDevice, onCheckUpdate = vm::checkForUpdate, pending = state.pendingResponses, verifyAdmin = vm::verifyAdminPassword, hasPassword = vm::hasAdminPassword, savePassword = vm::saveAdminPassword)
                 },
             )
         },
@@ -161,26 +161,47 @@ private fun OverflowMenu(
     onCheckUpdate: () -> Unit,
     pending: Int,
     verifyAdmin: (String) -> Boolean,
+    hasPassword: () -> Boolean,
+    savePassword: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
     var adminMode by remember { mutableStateOf(false) }
     var unlock by remember { mutableStateOf(false) }
-    var key by remember { mutableStateOf("") }
-    var keyError by remember { mutableStateOf(false) }
+    var password by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var changingPassword by remember { mutableStateOf(false) }
     if (unlock) {
-        AlertDialog(onDismissRequest = { unlock = false; key = "" }, title = { Text("Unlock admin controls") },
+        val creating = changingPassword || !hasPassword()
+        fun closePasswordDialog() {
+            unlock = false; password = ""; confirmation = ""; passwordError = null; changingPassword = false
+        }
+        AlertDialog(onDismissRequest = { closePasswordDialog() },
+            title = { Text(if (creating) "Set admin password" else "Unlock admin controls") },
             text = { Column {
-                Text("Enter the workspace API key to manage this device.")
-                androidx.compose.material3.OutlinedTextField(value = key, onValueChange = { key = it; keyError = false },
-                    label = { Text("API key") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                    isError = keyError, singleLine = true)
-                if (keyError) Text("The key does not match this workspace.")
+                Text(if (creating) "Choose a password of at least 4 characters for this device. Sharing the setup QR does not require it."
+                    else "Enter this device's admin password.")
+                androidx.compose.material3.OutlinedTextField(value = password, onValueChange = { password = it; passwordError = null },
+                    label = { Text("Password") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    isError = passwordError != null, singleLine = true)
+                if (creating) androidx.compose.material3.OutlinedTextField(value = confirmation,
+                    onValueChange = { confirmation = it; passwordError = null }, label = { Text("Confirm password") },
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true)
+                passwordError?.let { Text(it) }
             } },
             confirmButton = { TextButton(onClick = {
-                if (verifyAdmin(key)) { adminMode = true; unlock = false; key = "" } else keyError = true
-            }) { Text("Unlock") } },
-            dismissButton = { TextButton(onClick = { unlock = false; key = "" }) { Text("Cancel") } })
+                if (creating) {
+                    if (password.length < 4) passwordError = "Use at least 4 characters."
+                    else if (password != confirmation) passwordError = "Passwords do not match."
+                    else {
+                        try { savePassword(password); adminMode = true; closePasswordDialog() }
+                        catch (_: Exception) { passwordError = "Could not save password. Try again." }
+                    }
+                } else if (verifyAdmin(password)) { adminMode = true; closePasswordDialog() }
+                else passwordError = "Incorrect password."
+            }) { Text(if (creating) "Save password" else "Unlock") } },
+            dismissButton = { TextButton(onClick = { closePasswordDialog() }) { Text("Cancel") } })
     }
     IconButton(onClick = { expanded = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = "More")
@@ -210,15 +231,17 @@ private fun OverflowMenu(
             onClick = { expanded = false; nav.navigate(Routes.DOWNLOAD_QR) },
         )
         DropdownMenuItem(
+            text = { Text("Share setup QR") },
+            onClick = { expanded = false; nav.navigate(Routes.ADMIN_QR) },
+        )
+        DropdownMenuItem(
             text = { Text(if (adminMode) "Lock admin controls" else "Admin controls…") },
             onClick = { expanded = false; if (adminMode) adminMode = false else unlock = true },
         )
         if (adminMode) {
+        DropdownMenuItem(text = { Text("Change admin password") },
+            onClick = { expanded = false; changingPassword = true; unlock = true })
         if (pending > 0) DropdownMenuItem(text = { Text("Sync pending responses before changing setup") }, onClick = {}, enabled = false)
-        DropdownMenuItem(
-            text = { Text("Show setup QR") },
-            onClick = { expanded = false; nav.navigate(Routes.ADMIN_QR) },
-        )
         DropdownMenuItem(
             text = { Text("Scan setup QR") },
             enabled = pending == 0,
@@ -240,7 +263,7 @@ private fun OverflowMenu(
         AlertDialog(
             onDismissRequest = { confirmReset = false },
             title = { Text("Reset device?") },
-            text = { Text("This clears the API key, workspace, surveyor identity, and saved drafts. Synced response history stays on this device. You'll need to scan the QR or re-run admin setup.") },
+            text = { Text("This clears the API key, workspace, admin password, surveyor identity, and saved drafts. Synced response history stays on this device. You'll need to scan the QR or re-run admin setup.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmReset = false

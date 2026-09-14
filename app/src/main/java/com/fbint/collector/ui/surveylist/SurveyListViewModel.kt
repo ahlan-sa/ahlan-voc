@@ -135,8 +135,9 @@ class SurveyListViewModel @Inject constructor(
         if (state.value.pendingResponses > 0) return
         config.clear()
     }
-    fun verifyAdminKey(value: String): Boolean = value.isNotBlank() &&
-        java.security.MessageDigest.isEqual(value.trim().toByteArray(), config.apiKey().orEmpty().toByteArray())
+    fun hasAdminPassword(): Boolean = config.hasAdminPassword()
+    fun verifyAdminPassword(value: String): Boolean = config.verifyAdminPassword(value)
+    fun saveAdminPassword(value: String) = config.saveAdminPassword(value)
 
 
     fun checkForUpdate() = runUpdateCheck(silent = false)
