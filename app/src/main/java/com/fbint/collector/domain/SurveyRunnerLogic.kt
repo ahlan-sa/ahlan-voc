@@ -44,7 +44,7 @@ fun SurveyDto.languageOptions(): List<LanguageOption> {
     val opts = mutableListOf<LanguageOption>()
     val defaultLang = languages.firstOrNull { it.default && it.enabled }
     if (defaultLang != null) {
-        val display = defaultLang.language?.let { it.alias ?: it.code } ?: "default"
+        val display = defaultLang.language?.let { languageDisplayName(it.alias, it.code) } ?: "default"
         opts += LanguageOption(
             displayName = display,
             lookupKey = "default",
@@ -53,7 +53,7 @@ fun SurveyDto.languageOptions(): List<LanguageOption> {
     }
     languages.filter { it.enabled && !it.default }.forEach { l ->
         val lang = l.language ?: return@forEach
-        val display = lang.alias ?: lang.code
+        val display = languageDisplayName(lang.alias, lang.code)
         opts += LanguageOption(
             displayName = display,
             lookupKey = lang.code,
@@ -61,6 +61,14 @@ fun SurveyDto.languageOptions(): List<LanguageOption> {
         )
     }
     return opts.ifEmpty { listOf(LanguageOption("default", "default")) }
+}
+
+/** Formbricks commonly sends an empty alias; null-only fallback leaves blank menu rows. */
+private fun languageDisplayName(alias: String?, code: String): String {
+    alias?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    val locale = java.util.Locale.forLanguageTag(code)
+    return locale.getDisplayName(locale).takeIf { it.isNotBlank() }
+        ?: code.takeIf { it.isNotBlank() } ?: "Default language"
 }
 
 /** ISO 639 codes for RTL scripts. Matches "ar", "ar-SA", "he", "fa-IR", etc. */

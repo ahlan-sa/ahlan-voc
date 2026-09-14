@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -276,9 +277,9 @@ private fun LanguageMenu(
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
         options.forEach { opt ->
-            val marker = if (opt.lookupKey == current) "  •  current" else ""
             DropdownMenuItem(
-                text = { Text(opt.displayName + marker) },
+                text = { Text(opt.displayName) },
+                trailingIcon = { if (opt.lookupKey == current) Icon(Icons.Filled.Check, contentDescription = "Selected language") },
                 onClick = { expanded = false; onPick(opt.lookupKey) },
             )
         }
