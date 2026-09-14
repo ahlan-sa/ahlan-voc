@@ -176,7 +176,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             it.copy(stage = newStage, validationError = null, variables = ctx.variables.toMap())
         }
         if (newStage is RunnerStage.Ending || newStage is RunnerStage.Done) {
-            submit(if (newStage is RunnerStage.Ending) newStage.endingId else null)
+            submit(if (newStage is RunnerStage.Ending) newStage.endingId else null, s.stage)
         }
     }
 
@@ -186,8 +186,9 @@ class SurveyRunnerViewModel @AssistedInject constructor(
         _state.update { it.copy(stage = previous, validationError = null) }
     }
 
-    private fun submit(endingId: String?) {
+    private fun submit(endingId: String?, previousStage: RunnerStage) {
         val survey = _state.value.survey ?: return
+        if (_state.value.stage == RunnerStage.Submitting) return
         _state.update { it.copy(stage = RunnerStage.Submitting) }
         viewModelScope.launch {
             try {
@@ -215,7 +216,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                 val finalStage = endingId?.let { RunnerStage.Ending(it) } ?: RunnerStage.Done
                 _state.update { it.copy(stage = finalStage) }
             } catch (t: Throwable) {
-                _state.update { it.copy(stage = RunnerStage.Error(t.message ?: "Failed to save response")) }
+                _state.update { it.copy(stage = previousStage, validationError = t.message ?: "Failed to save response. Please retry.") }
             }
         }
     }
@@ -238,7 +239,9 @@ class SurveyRunnerViewModel @AssistedInject constructor(
         val elapsedSeconds = ((android.os.SystemClock.elapsedRealtime() - startedElapsedMs) / 1000L).coerceAtLeast(0)
         val started = if (startedAtMs > 0) startedAtMs else now
         val online = runCatching { networkMonitor.observeOnline().first() }.getOrDefault(false)
-        val location = runCatching { locationProvider.current() }.getOrNull()
+        val location = requireNotNull(locationProvider.current(timeoutMs = 15_000)) {
+            "Could not obtain your location. Turn on device location, move to an open area, then submit again. Your answers are kept."
+        }
         val pace = runCatching {
             val sid = config.surveyorId() ?: return@runCatching 0
             val startOfDay = startOfTodayMs()

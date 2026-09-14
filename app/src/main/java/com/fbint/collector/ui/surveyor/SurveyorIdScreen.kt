@@ -64,12 +64,6 @@ fun SurveyorIdScreen(
 ) {
     val state by vm.state.collectAsState()
 
-    // Ask for location once during onboarding. If denied, location-based hidden fields just
-    // stay empty for this device — the runner doesn't block on it.
-    val locationLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { /* result ignored — we just record the choice; runner re-checks at submit time */ }
-
     Scaffold(topBar = { TopAppBar(title = { Text("Surveyor identity") }) }) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
@@ -87,12 +81,6 @@ fun SurveyorIdScreen(
             Spacer(Modifier.height(24.dp))
             Button(
                 onClick = {
-                    locationLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                        )
-                    )
                     vm.save {
                         nav.navigate(Routes.SURVEY_LIST) {
                             popUpTo(0) { inclusive = true }
@@ -104,7 +92,7 @@ fun SurveyorIdScreen(
             ) { Text("Continue") }
             Spacer(Modifier.height(12.dp))
             Text(
-                "We'll ask for location permission next — only used if your survey has a hidden field for location. You can deny if you prefer.",
+                "Location permission and device location are required before collecting a survey. Each response includes collection coordinates.",
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
             )
         }

@@ -88,6 +88,12 @@ import com.fbint.collector.ui.runner.components.RatingQuestion
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SurveyRunnerScreen(nav: NavHostController, surveyId: String) {
+    LocationRequired { SurveyRunnerContent(nav, surveyId) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SurveyRunnerContent(nav: NavHostController, surveyId: String) {
     val vm: SurveyRunnerViewModel = hiltViewModel<SurveyRunnerViewModel, SurveyRunnerViewModel.Factory>(
         creationCallback = { factory -> factory.create(surveyId) },
     )
