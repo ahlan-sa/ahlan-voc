@@ -30,9 +30,12 @@ interface ResponseQueueDao {
     @Query("UPDATE queued_responses SET attempts = attempts + 1, lastError = :error WHERE clientUuid = :id")
     suspend fun markFailure(id: String, error: String)
 
-    /** Mark a row as in-flight just before the network call. */
-    @Query("UPDATE queued_responses SET sendingAt = :ts WHERE clientUuid = :id")
-    suspend fun markSending(id: String, ts: Long)
+    /** Atomically claim a pending row; only the caller that updates one row may POST it. */
+    @Query(
+        "UPDATE queued_responses SET sendingAt = :ts WHERE clientUuid = :id " +
+            "AND syncedAt IS NULL AND (sendingAt IS NULL OR sendingAt < :staleBefore)"
+    )
+    suspend fun claimForSending(id: String, ts: Long, staleBefore: Long): Int
 
     /** Clear in-flight marker — used after a confirmed-rejection (4xx) so retries aren't blocked. */
     @Query("UPDATE queued_responses SET sendingAt = NULL WHERE clientUuid = :id")

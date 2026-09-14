@@ -23,6 +23,8 @@ coroutines = "1.9.0"
 coil = "3.0.4"
 playLocation = "21.3.0"
 junit = "4.13.2"
+robolectric = "4.14.1"
+mockito = "5.15.2"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -79,6 +81,9 @@ coil-network = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", versi
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playLocation" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
+mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

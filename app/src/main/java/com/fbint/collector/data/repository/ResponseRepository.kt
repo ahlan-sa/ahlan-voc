@@ -7,7 +7,10 @@ import com.fbint.collector.data.remote.dto.CreateResponseRequest
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -81,11 +84,10 @@ class ResponseRepository @Inject constructor(
      * Sync everything currently pending. Skips responses whose bound files haven't all
      * uploaded yet (those will succeed on a later run after FileUploadWorker completes).
      *
-     * Duplicate avoidance: each row is marked in-flight via `markSending` BEFORE the POST.
-     * `pendingOnce` excludes in-flight rows within [SENDING_STALE_MS], which prevents the
-     * periodic worker from re-POSTing a row that the one-shot worker is currently sending,
-     * and prevents a worker re-run after process death from duplicating a response whose
-     * server-side success we never recorded. On 4xx (request rejected, no row created)
+     * Duplicate avoidance: pendingOnce is only a snapshot. Before each POST, an atomic
+     * claim rechecks that the row is still unsynced and outside [SENDING_STALE_MS]. Only
+     * the worker that wins that claim sends it, even when workers read the same snapshot.
+     * On 4xx (request rejected, no row created)
      * we clear `sendingAt` so the row can be retried on the next worker run; on
      * network/5xx/429 we leave it set so the row stays in-flight until the stale window
      * expires — Formbricks may have processed the request even though we got an error.
@@ -144,6 +146,8 @@ class ResponseRepository @Inject constructor(
                     variables = variables.takeIf { it.isNotEmpty() },
                     hiddenFields = null,
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (t: Throwable) {
                 // Failure during payload prep — the POST never started, so leave sendingAt
                 // alone (it's still null) and just log the error.
@@ -153,15 +157,22 @@ class ResponseRepository @Inject constructor(
                 continue
             }
 
-            // Mark in-flight BEFORE the POST. From this point on, any concurrent worker
-            // (one-shot vs periodic, or a retry triggered by process death) will see this
-            // row's sendingAt within the stale window and skip it.
-            dao.markSending(item.clientUuid, System.currentTimeMillis())
+            // Another worker may have claimed OR finished this row since pendingOnce.
+            val claimTime = System.currentTimeMillis()
+            if (dao.claimForSending(item.clientUuid, claimTime, claimTime - SENDING_STALE_MS) != 1) {
+                continue
+            }
             try {
                 val resp = api.createResponse(item.environmentId, req)
-                dao.markSynced(item.clientUuid, System.currentTimeMillis(), resp.data.id)
+                // Once success is received, persist it even if WorkManager stops this job.
+                withContext(NonCancellable) {
+                    dao.markSynced(item.clientUuid, System.currentTimeMillis(), resp.data.id)
+                }
                 synced++
                 resolvedFiles.keys.forEach { files.purgeUploadedFile(it) }
+            } catch (cancelled: CancellationException) {
+                // Keep the claim: the server may have accepted a cancelled request.
+                throw cancelled
             } catch (t: Throwable) {
                 failed++
                 val msg = (t.message ?: t.javaClass.simpleName).take(500)

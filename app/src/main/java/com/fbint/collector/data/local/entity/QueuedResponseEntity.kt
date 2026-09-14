@@ -38,10 +38,9 @@ data class QueuedResponseEntity(
     val serverResponseId: String? = null,
     /**
      * Set just before a POST is issued, cleared on success or on a confirmed-rejection
-     * 4xx. While set (within [STALE_SENDING_MS]) the row is considered in-flight and the
-     * sync loop will not re-POST it — this is what guarantees that a periodic worker run
-     * stomping on a one-shot run, or a process death between server-side success and our
-     * `markSynced` write, doesn't create a duplicate response on Formbricks.
+     * 4xx. An atomic claim prevents competing workers from sending the same row within
+     * the ten-minute lease. After the lease expires an ambiguous network failure can
+     * still cause a duplicate; this marker is not server-side idempotency.
      */
     val sendingAt: Long? = null,
 )

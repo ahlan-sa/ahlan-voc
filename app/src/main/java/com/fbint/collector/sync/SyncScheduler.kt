@@ -26,22 +26,25 @@ class SyncScheduler @Inject constructor(
         scheduleFileUploadPeriodic()
     }
 
-    /** Triggered after a captured response. Files go first, then responses. */
+    /** Queue a follow-up pass without cancelling a POST already in progress. */
     fun requestImmediateSync() {
-        enqueueOneShot<FileUploadWorker>(FileUploadWorker.UNIQUE_NAME)
-        enqueueOneShot<ResponseSyncWorker>(ResponseSyncWorker.UNIQUE_NAME)
+        enqueueOneShot<FileUploadWorker>(FileUploadWorker.UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE)
+        enqueueOneShot<ResponseSyncWorker>(ResponseSyncWorker.UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE)
     }
 
     fun requestImmediateSurveyRefresh() {
         enqueueOneShot<SurveyRefreshWorker>(SurveyRefreshWorker.UNIQUE_NAME)
     }
 
-    private inline fun <reified W : androidx.work.ListenableWorker> enqueueOneShot(uniqueName: String) {
+    private inline fun <reified W : androidx.work.ListenableWorker> enqueueOneShot(
+        uniqueName: String,
+        policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE,
+    ) {
         val req = OneTimeWorkRequestBuilder<W>()
             .setConstraints(networkConstraints())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        wm.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.REPLACE, req)
+        wm.enqueueUniqueWork(uniqueName, policy, req)
     }
 
     private fun scheduleResponseSyncPeriodic() {

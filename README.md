@@ -185,7 +185,7 @@ The app does not compute a quality score on the device — that's tamper-bait. I
 
 Score starts at 100; subtract penalties; below 50 = manual review.
 
-## Why responses don't duplicate
+## Response duplicate protection
 
 Formbricks' public `POST /responses` is not idempotent — there's no server-side dedup key, so any retry after a server-side success creates a fresh response. We saw this in production: pairs of identical submissions ~30 s apart on the same device, matching the one-shot `ResponseSyncWorker`'s exponential backoff. Causes that triggered it:
 
@@ -196,8 +196,11 @@ Formbricks' public `POST /responses` is not idempotent — there's no server-sid
 Mitigation is purely client-side (we don't control Formbricks):
 
 1. **Stable client UUID** in `meta.source = "fbint:<uuid>"` so any duplicate that does slip through is identifiable for manual cleanup.
-2. **In-flight marker** (`queued_responses.sendingAt`, added in DB v4) is set just before each POST. `ResponseQueueDao.pendingOnce` excludes rows whose `sendingAt` is within `SENDING_STALE_MS` (10 min) — so concurrent worker runs and process-death retries simply skip the row instead of re-POSTing. On a confirmed 4xx (no server row created) we clear the marker so the row can retry on the next run; on network/5xx/429 (server may have processed it anyway) we leave the marker set and accept a delayed retry.
-3. **Stale-window cap (10 min)** caps duplicate exposure: in the worst case where a 200 OK was genuinely lost AND the worker doesn't run again for >10 min, we'll retry once. We accept that bounded duplicate over the alternative of losing real responses to a stuck-forever in-flight marker.
+2. **Atomic in-flight claim** (`queued_responses.sendingAt`, added in DB v4) is acquired just before each POST. `pendingOnce` is only a snapshot: two workers waking after an offline period can read the same backlog. `claimForSending` conditionally updates a row only if it is still unsynced and its previous claim is absent or expired. Only the worker that updates one row may POST; the other skips it, including if the first worker already finished it. No database migration is needed for this change.
+3. **Non-interrupting sync requests.** New one-shot sync requests use `APPEND_OR_REPLACE`, so capturing another survey or tapping Sync now queues another pass without cancelling an active upload. Cancellation propagates without clearing an uncertain claim. Once the API returns success, recording that success runs in a non-cancellable database write.
+4. **Ten-minute retry delay for uncertain outcomes.** On a confirmed 4xx rejection (except 429), the marker is cleared. On network/5xx/429 or cancellation, it remains until the stale window expires. If the server accepted a request but its acknowledgement was lost, retrying after that window can still duplicate it. This is not an exactly-once guarantee; that requires server-side idempotency or reconciliation.
+
+Regression check: `./gradlew :app:testDebugUnitTest`. The Room + mock HTTP server test forces two workers to read the same offline backlog and verifies exactly one POST per response.
 
 ## Known limits
 

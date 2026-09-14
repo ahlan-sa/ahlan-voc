@@ -7,6 +7,7 @@ import androidx.work.WorkerParameters
 import com.fbint.collector.data.repository.ResponseRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 
 @HiltWorker
 class ResponseSyncWorker @AssistedInject constructor(
@@ -21,6 +22,8 @@ class ResponseSyncWorker @AssistedInject constructor(
             outcome.retry -> Result.retry()
             else -> Result.success()
         }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (t: Throwable) {
         if (runAttemptCount >= MAX_ATTEMPTS) Result.failure() else Result.retry()
     }
