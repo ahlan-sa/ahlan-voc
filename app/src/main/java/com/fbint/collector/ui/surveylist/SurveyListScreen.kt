@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -54,7 +55,6 @@ fun SurveyListScreen(
     vm: SurveyListViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
-    var search by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     val updateState by vm.updateState.collectAsState()
     androidx.compose.runtime.LaunchedEffect(Unit) {
         vm.silentlyCheckOnLaunch()
@@ -94,9 +94,6 @@ fun SurveyListScreen(
                 online = state.online,
                 onSyncNow = vm::syncNow,
             )
-            androidx.compose.material3.OutlinedTextField(value = search, onValueChange = { search = it },
-                label = { Text("Find a survey") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp))
             state.surveys.maxOfOrNull { it.cachedAt }?.let { time ->
                 Text("Surveys saved " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
                     java.text.DateFormat.SHORT).format(java.util.Date(time)),
@@ -122,13 +119,16 @@ fun SurveyListScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-                    items(state.surveys.filter { it.name.contains(search, ignoreCase = true) }, key = { it.id }) { survey ->
+                    items(state.surveys, key = { it.id }) { survey ->
                         val counts = state.perSurveyCounts[survey.id]
+                        val offlineReady = survey.id in state.offlineReadyIds
+                        val canOpen = survey.id in state.savedDefinitionIds && (state.online || offlineReady)
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 6.dp)
-                                .clickable { vm.onSurveyTapped(survey, nav) },
+                                .alpha(if (canOpen) 1f else 0.5f)
+                                .clickable(enabled = canOpen) { vm.onSurveyTapped(survey, nav) },
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -143,7 +143,12 @@ fun SurveyListScreen(
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "Available offline",
+                                    when {
+                                        offlineReady -> "Available offline"
+                                        survey.id !in state.savedDefinitionIds -> if (state.online) "Not ready — refresh surveys" else "Connect to download"
+                                        state.online -> "Online only — offline download incomplete"
+                                        else -> "Connect to download"
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                                 if (counts != null) {

@@ -39,7 +39,7 @@ class SurveyRepository @Inject constructor(
         get() = factory.management { config.baseUrl() ?: "https://app.formbricks.com" }
 
     fun observeCachedSurveys(): Flow<List<SurveyEntity>> = dao.observeAll().map { cached ->
-        cached.filter { surveyAdapter.fromJson(it.json)?.isVisibleInApp() == true }
+        cached.filter { runCatching { surveyAdapter.fromJson(it.json)?.isVisibleInApp() == true }.getOrDefault(false) }
     }
 
     fun cachedCount(): Flow<Int> = dao.count()
@@ -66,15 +66,15 @@ class SurveyRepository @Inject constructor(
         val detailed = list.map { summary ->
             val full = if (summary.questions.isEmpty()) {
                 runCatching { currentApi.getSurvey(key, summary.id).data }
-                    .onFailure { if (it is CancellationException) throw it }.getOrDefault(summary)
+                    .onFailure { if (it is CancellationException) throw it }.getOrElse { loadFromCache(summary.id) ?: summary }
             } else summary
             tryAutoRegisterHiddenFields(key, full)
         }
         // Cache active NO surveys too: queued responses still need their language and
         // hidden-field definitions. Visibility only controls new collection, not uploads.
+        prewarmImages(detailed)
         dao.upsert(detailed.map { it.toEntity() })
         dao.pruneExcept(detailed.map { it.id })
-        prewarmImages(detailed)
         detailed.size
     }.onFailure { if (it is CancellationException) throw it }
 
@@ -114,27 +114,41 @@ class SurveyRepository @Inject constructor(
         }
     }
 
-    /**
-     * Fire image fetches into Coil's disk cache. We don't await results — failures here are
-     * non-fatal (the runner will still render the URL, just possibly with a load error icon
-     * if offline at use time).
-     */
-    private fun prewarmImages(surveys: List<SurveyDto>) {
-        val urls = surveys.flatMap { s ->
-            buildList {
-                s.welcomeCard?.fileUrl?.let { add(it) }
-                s.endings.forEach { it.imageUrl?.let { url -> add(url) } }
-                s.questions.forEach { q ->
-                    q.imageUrl?.let { add(it) }
-                    q.choices?.forEach { c -> c.imageUrl?.let { add(it) } }
-                }
-            }
-        }.filter { it.isNotBlank() }.distinct()
+    private fun imageUrls(s: SurveyDto): List<String> = buildList {
+        s.welcomeCard?.fileUrl?.let { add(it) }
+        s.endings.forEach { it.imageUrl?.let { url -> add(url) } }
+        s.questions.forEach { q ->
+            q.imageUrl?.let { add(it) }
+            q.choices?.forEach { c -> c.imageUrl?.let { add(it) } }
+        }
+    }.filter { it.isNotBlank() }.distinct()
 
+    fun hasSavedDefinition(entity: SurveyEntity): Boolean = runCatching {
+        val survey = surveyAdapter.fromJson(entity.json) ?: return@runCatching false
+        survey.questions.isNotEmpty() && survey.hiddenFields?.enabled == true &&
+            survey.hiddenFields.fieldIds.containsAll(listOf("surveyor_id", "time_to_complete_seconds", "location_lat", "location_lng"))
+    }.getOrDefault(false)
+
+    /** Check actual disk contents, rather than assuming that an attempted download succeeded. */
+    fun isOfflineReady(entity: SurveyEntity): Boolean = runCatching {
+        if (!hasSavedDefinition(entity)) return@runCatching false
+        val survey = surveyAdapter.fromJson(entity.json) ?: return@runCatching false
+        if (survey.questions.any { !it.videoUrl.isNullOrBlank() } || survey.endings.any { !it.videoUrl.isNullOrBlank() })
+            return@runCatching false
+        val urls = imageUrls(survey)
+        if (urls.isEmpty()) return@runCatching true
+        val disk = SingletonImageLoader.get(ctx).diskCache ?: return@runCatching false
+        urls.all { url -> disk.openSnapshot(url)?.use { true } ?: false }
+    }.getOrDefault(false)
+
+    /** Finish downloads before publishing the refreshed offline readiness state. */
+    private suspend fun prewarmImages(surveys: List<SurveyDto>) {
+        val urls = surveys.flatMap(::imageUrls).distinct()
         if (urls.isEmpty()) return
         val loader: ImageLoader = SingletonImageLoader.get(ctx)
         urls.forEach { url ->
-            loader.enqueue(ImageRequest.Builder(ctx).data(url).build())
+            try { loader.execute(ImageRequest.Builder(ctx).data(url).build()) }
+            catch (t: Exception) { if (t is CancellationException) throw t }
         }
     }
 

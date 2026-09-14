@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.delay
@@ -29,6 +30,8 @@ import javax.inject.Inject
 data class SurveyListState(
     val surveys: List<SurveyEntity> = emptyList(),
     val pinnedSurveyIds: Set<String> = emptySet(),
+    val offlineReadyIds: Set<String> = emptySet(),
+    val savedDefinitionIds: Set<String> = emptySet(),
     val pendingResponses: Int = 0,
     val syncedResponses: Int = 0,
     val strugglingResponses: Int = 0,
@@ -100,6 +103,8 @@ class SurveyListViewModel @Inject constructor(
         SurveyListState(
             surveys = surveys.sortedByDescending { it.id in pins },
             pinnedSurveyIds = pins,
+            offlineReadyIds = surveys.filter(surveyRepo::isOfflineReady).map { it.id }.toSet(),
+            savedDefinitionIds = surveys.filter(surveyRepo::hasSavedDefinition).map { it.id }.toSet(),
             pendingResponses = pending,
             syncedResponses = synced,
             strugglingResponses = struggling,
@@ -110,7 +115,7 @@ class SurveyListViewModel @Inject constructor(
             online = online,
             perSurveyCounts = perSurvey,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SurveyListState())
+    }.flowOn(kotlinx.coroutines.Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SurveyListState())
 
     init {
         viewModelScope.launch {
@@ -230,6 +235,11 @@ class SurveyListViewModel @Inject constructor(
      */
     fun onSurveyTapped(survey: SurveyEntity, nav: androidx.navigation.NavHostController) {
         viewModelScope.launch {
+            val ready = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                surveyRepo.hasSavedDefinition(survey) &&
+                    (networkMonitor.observeOnline().first() || surveyRepo.isOfflineReady(survey))
+            }
+            if (!ready) return@launch
             val full = surveyRepo.loadFromCache(survey.id)
             val manualFields = full?.hiddenFields?.fieldIds.orEmpty()
                 .filter { it !in com.fbint.collector.data.repository.AUTO_STAMPED_HIDDEN_FIELD_IDS }
