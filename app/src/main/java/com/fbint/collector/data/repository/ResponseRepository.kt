@@ -155,7 +155,7 @@ class ResponseRepository @Inject constructor(
                 req = CreateResponseRequest(
                     surveyId = item.surveyId,
                     finished = item.finished,
-                    data = mergedData,
+                    data = com.fbint.collector.domain.choiceAnswerPayload(mergedData, survey, sanitizedLang),
                     // Surveyors are collectors, not respondent contacts. v5 gates userId
                     // behind Contacts licensing; retain collector attribution in stamps.
                     userId = null,
