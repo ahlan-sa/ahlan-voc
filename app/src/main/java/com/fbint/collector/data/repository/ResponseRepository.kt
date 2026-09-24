@@ -253,8 +253,10 @@ class ResponseRepository @Inject constructor(
     }
 
     private fun isFatal(t: Throwable): Boolean {
-        val msg = t.message.orEmpty()
-        return Regex("HTTP 4[0-9]{2}").containsMatchIn(msg) && !msg.contains("HTTP 429")
+        val status = (t as? retrofit2.HttpException)?.code() ?: return false
+        // A proxy timeout can arrive after the server processed the request. Reconcile
+        // before retrying it, just like an uncertain 5xx or disconnected connection.
+        return status in 400..499 && status != 408 && status != 429
     }
 
     /**

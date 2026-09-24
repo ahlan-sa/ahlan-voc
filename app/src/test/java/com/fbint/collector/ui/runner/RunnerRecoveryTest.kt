@@ -61,6 +61,41 @@ class RunnerRecoveryTest {
         assertEquals(1.0, vm.state.value.variables["counter"])
 
     }
+    @Test fun offlineSaveStaysSuccessfulWhenCleanupAndSyncSchedulingFail() = runBlocking {
+        val surveys = mock(SurveyRepository::class.java)
+        val responses = mock(ResponseRepository::class.java)
+        val config = mock(ConfigRepository::class.java)
+        val sync = mock(SyncScheduler::class.java)
+        val location = mock(LocationProvider::class.java)
+        val network = mock(NetworkMonitor::class.java)
+        val dao = mock(ResponseQueueDao::class.java)
+        `when`(network.observeOnline()).thenReturn(flowOf(false))
+        `when`(surveys.loadFromCache("survey")).thenReturn(SurveyDto(
+            "survey", "Example", environmentId = "env", status = "inProgress",
+            variables = listOf(VariableDto("visible", "show_in_app", "text", "YES")),
+            hiddenFields = HiddenFieldsDto(true, AUTO_STAMPED_HIDDEN_FIELD_IDS.toList()),
+            questions = listOf(QuestionDto("question", "openText", required = false))))
+        `when`(location.current(15_000)).thenReturn(android.location.Location("gps").apply {
+            latitude = 24.7; longitude = 46.6; accuracy = 5f
+        })
+        `when`(config.deviceInstallId()).thenReturn("device")
+        `when`(config.surveyorId()).thenReturn("surveyor")
+        `when`(dao.observeById(anyString())).thenReturn(flowOf(null))
+        doThrow(IllegalStateException("Draft cleanup failed")).`when`(config).deleteDraft("survey")
+        doThrow(IllegalStateException("Scheduler unavailable")).`when`(sync).requestImmediateSync()
+        val vm = SurveyRunnerViewModel("survey", surveys, responses,
+            mock(FileQueueRepository::class.java), config, sync, location, network, dao)
+        shadowOf(Looper.getMainLooper()).idle()
+        vm.setAnswer("question", "Offline answer")
+        vm.next()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(RunnerStage.Done, vm.state.value.stage)
+        assertFalse(vm.state.value.receiptSynced)
+        assertNull(vm.state.value.validationError)
+        assertEquals(1, mockingDetails(responses).invocations.count { it.method.name == "enqueue" })
+        verify(sync).requestImmediateSync()
+    }
+
     @Test fun discardDeletesOnlyDraftAndExitsWithoutSubmittingOrRestarting() = runBlocking {
         val surveys = mock(SurveyRepository::class.java)
         val config = mock(ConfigRepository::class.java)

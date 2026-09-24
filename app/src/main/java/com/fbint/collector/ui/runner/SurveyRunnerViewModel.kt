@@ -200,11 +200,19 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                 submissionId = java.util.UUID.randomUUID().toString()
                 persistDraft()
             }
-            viewModelScope.launch {
-                val fix = runCatching { locationProvider.current(10_000) }.getOrNull()
-                _state.update { it.copy(locationStatus = if (fix == null) "GPS not ready — check location before submitting"
-                    else "Last GPS fix · accuracy ±${fix.accuracy.toInt()} m") }
-            }
+        }
+    }
+
+    /** Owned by the screen's STARTED lifecycle; cancelled on exit/background/submission. */
+    suspend fun keepLocationReady() {
+        while (true) {
+            val fix = try { locationProvider.warm() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
+            _state.update { it.copy(locationStatus = if (fix == null)
+                "GPS not ready — check location before submitting"
+                else "Last GPS fix · accuracy ±${fix.accuracy.toInt()} m") }
+            kotlinx.coroutines.delay(5_000)
         }
     }
 
@@ -296,8 +304,6 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                     autoStampCandidates = candidates,
                     allowedHiddenFieldIds = survey.hiddenFields?.fieldIds.orEmpty().toSet(),
                 )
-                config.deleteDraft(surveyId)
-                sync.requestImmediateSync()
                 val id = submissionId
                 receiptJob?.cancel()
                 _state.update { it.copy(receiptSynced = false) }
@@ -310,6 +316,11 @@ class SurveyRunnerViewModel @AssistedInject constructor(
                         (instrumentation.location?.let { loc -> "${loc.latitude}, ${loc.longitude} · ±${loc.accuracy.toInt()} m" } ?: "")) }
                 val finalStage = endingId?.let { RunnerStage.Ending(it) } ?: RunnerStage.Done
                 _state.update { it.copy(stage = finalStage) }
+                // Saving to Room is the success boundary. Housekeeping/scheduling failures
+                // must never send the surveyor back to resubmit an already saved response.
+                runCatching { config.deleteDraft(surveyId) }
+                runCatching { sync.requestImmediateSync() }
+
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 ctx.variables.clear(); ctx.variables.putAll(beforeLogic)

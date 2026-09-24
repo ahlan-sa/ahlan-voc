@@ -234,6 +234,32 @@ class ResponseSyncTest {
         assertNotNull(dao.getById("uncertain")!!.sendingAt)
     }
 
+    @Test
+    fun rejectedResponseDoesNotBlockOtherSavedResponses() = runBlocking {
+        dao.insert(response("rejected").copy(capturedAt = 1))
+        dao.insert(response("valid").copy(capturedAt = 2))
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"message":"Validation failed"}"""))
+        server.enqueue(MockResponse().setBody("""{"data":{"id":"accepted"}}"""))
+        val result = repository(dao).syncPending()
+        assertEquals(1, result.failed)
+        assertEquals(1, result.synced)
+        assertEquals(response("rejected").dataJson, dao.getById("rejected")!!.dataJson)
+        assertNull(dao.getById("rejected")!!.syncedAt)
+        assertEquals("accepted", dao.getById("valid")!!.serverResponseId)
+    }
+
+    @Test
+    fun proxyTimeoutRetainsDuplicateGuardUntilServerVerification() = runBlocking {
+        dao.insert(response("timeout"))
+        server.enqueue(MockResponse().setResponseCode(408))
+        val repo = repository(dao)
+        assertTrue(repo.syncPending().retry)
+        assertNotNull(dao.getById("timeout")!!.sendingAt)
+        assertEquals(0, repo.syncPending().synced)
+        assertEquals(1, server.requestCount)
+        assertEquals(response("timeout").dataJson, dao.getById("timeout")!!.dataJson)
+    }
+
     private fun repository(queue: ResponseQueueDao): ResponseRepository {
         val config = Mockito.mock(ConfigRepository::class.java)
         Mockito.`when`(config.apiKey()).thenReturn("test-key")

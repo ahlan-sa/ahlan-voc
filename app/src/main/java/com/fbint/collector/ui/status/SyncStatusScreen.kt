@@ -133,7 +133,7 @@ private fun ResponseRow(item: QueuedResponseEntity, name: String?) {
         item.syncedAt != null -> "Synced"
         item.sendingAt != null -> "Saved · awaiting upload verification"
         item.attempts == 0 -> "Saved on device · waiting to sync"
-        else -> "Retry x${item.attempts}"
+        else -> "Saved · upload needs attention"
     }
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
@@ -151,6 +151,8 @@ private fun ResponseRow(item: QueuedResponseEntity, name: String?) {
                 Text("Response ID: ${item.clientUuid}", style = MaterialTheme.typography.labelSmall)
             }
             if (!item.lastError.isNullOrBlank() && item.syncedAt == null) {
+                Text(com.fbint.collector.domain.syncRecoveryAdvice(item.lastError),
+                    style = MaterialTheme.typography.bodySmall)
                 androidx.compose.foundation.text.selection.SelectionContainer {
                 Text(
                     "Last recorded error: ${item.lastError}",

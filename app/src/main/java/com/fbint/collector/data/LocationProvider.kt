@@ -19,8 +19,8 @@ import kotlin.coroutines.resume
 
 /**
  * Wraps Google Play Services FusedLocationProviderClient. Requires runtime permission — if the
- * surveyor never granted ACCESS_COARSE_LOCATION (or finer), [current] returns null and callers
- * silently skip stamping the location hidden fields.
+ * surveyor never granted ACCESS_COARSE_LOCATION (or finer), [current] returns null and
+ * submission remains blocked with the answers saved as a draft.
  */
 @Singleton
 class LocationProvider @Inject constructor(
@@ -34,8 +34,13 @@ class LocationProvider @Inject constructor(
         return fine == PackageManager.PERMISSION_GRANTED || coarse == PackageManager.PERMISSION_GRANTED
     }
 
+    suspend fun current(timeoutMs: Long = 4_000): Location? = request(timeoutMs, 15_000)
+
+    /** Called only while the collecting screen is in the foreground. */
+    suspend fun warm(): Location? = request(10_000, 5_000)
+
     @SuppressLint("MissingPermission")
-    suspend fun current(timeoutMs: Long = 4_000): Location? {
+    private suspend fun request(timeoutMs: Long, maxAgeMs: Long): Location? {
         if (!hasPermission()) return null
         return withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine<Location?> { cont ->
@@ -43,7 +48,7 @@ class LocationProvider @Inject constructor(
                 cont.invokeOnCancellation { token.cancel() }
                 val request = CurrentLocationRequest.Builder()
                     .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
-                    .setMaxUpdateAgeMillis(15_000)
+                    .setMaxUpdateAgeMillis(maxAgeMs)
                     .setDurationMillis(timeoutMs)
                     .build()
                 client.getCurrentLocation(request, token.token)

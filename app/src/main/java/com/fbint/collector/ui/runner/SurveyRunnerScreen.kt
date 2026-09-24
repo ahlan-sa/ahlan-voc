@@ -1,6 +1,7 @@
 package com.fbint.collector.ui.runner
 
 import android.content.Intent
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -107,6 +108,12 @@ private fun SurveyRunnerContent(nav: NavHostController, surveyId: String) {
 
     var confirmExit by remember { mutableStateOf(false) }
     val collecting = state.stage == RunnerStage.Welcome || state.stage is RunnerStage.Question
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.LaunchedEffect(lifecycleOwner, collecting) {
+        if (collecting) lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            vm.keepLocationReady()
+        }
+    }
     androidx.activity.compose.BackHandler(enabled = collecting || state.stage == RunnerStage.Submitting) {
         if (collecting) confirmExit = true
     }
@@ -189,8 +196,14 @@ private fun SurveyRunnerContent(nav: NavHostController, surveyId: String) {
             ) {
                 SurveyCard(style) {
                     when (val stage = state.stage) {
-                        RunnerStage.Loading, RunnerStage.Submitting ->
-                            Centered { CircularProgressIndicator(color = style.brandColor) }
+                        RunnerStage.Loading -> Centered { CircularProgressIndicator(color = style.brandColor) }
+                        RunnerStage.Submitting -> Centered {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(color = style.brandColor)
+                                Text("Checking location and saving on this device…",
+                                    modifier = Modifier.padding(16.dp), textAlign = TextAlign.Center)
+                            }
+                        }
 
                         RunnerStage.Welcome ->
                             WelcomePane(survey, state.language, style, vm::startFromWelcome)
