@@ -151,11 +151,13 @@ private fun ResponseRow(item: QueuedResponseEntity, name: String?) {
                 Text("Response ID: ${item.clientUuid}", style = MaterialTheme.typography.labelSmall)
             }
             if (!item.lastError.isNullOrBlank() && item.syncedAt == null) {
+                androidx.compose.foundation.text.selection.SelectionContainer {
                 Text(
                     "Last recorded error: ${item.lastError}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+                }
             }
         }
     }

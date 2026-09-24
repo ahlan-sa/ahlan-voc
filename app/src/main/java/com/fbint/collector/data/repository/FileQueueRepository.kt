@@ -6,6 +6,7 @@ import android.webkit.MimeTypeMap
 import com.fbint.collector.data.local.QueuedFileDao
 import com.fbint.collector.data.local.entity.QueuedFileEntity
 import com.fbint.collector.data.remote.FormbricksClientApi
+import com.fbint.collector.data.remote.syncErrorMessage
 import com.fbint.collector.data.remote.dto.UploadFileRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -118,7 +119,7 @@ class FileQueueRepository @Inject constructor(
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 failed++
-                dao.markFailure(item.clientUuid, (t.message ?: t.javaClass.simpleName).take(500))
+                dao.markFailure(item.clientUuid, syncErrorMessage(t))
                 if (!isFatal(t)) retry = true
             } finally {
                 dao.releaseUpload(item.clientUuid)

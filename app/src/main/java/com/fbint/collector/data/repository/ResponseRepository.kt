@@ -3,6 +3,7 @@ package com.fbint.collector.data.repository
 import com.fbint.collector.data.local.ResponseQueueDao
 import com.fbint.collector.data.local.entity.QueuedResponseEntity
 import com.fbint.collector.data.remote.FormbricksClientApi
+import com.fbint.collector.data.remote.syncErrorMessage
 import com.fbint.collector.data.remote.dto.CreateResponseRequest
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
@@ -172,7 +173,7 @@ class ResponseRepository @Inject constructor(
                 // Failure during payload prep — the POST never started, so leave sendingAt
                 // alone (it's still null) and just log the error.
                 failed++
-                dao.markFailure(item.clientUuid, (t.message ?: t.javaClass.simpleName).take(500))
+                dao.markFailure(item.clientUuid, syncErrorMessage(t))
                 if (!isFatal(t)) retry = true
                 continue
             }
@@ -197,7 +198,7 @@ class ResponseRepository @Inject constructor(
                 throw cancelled
             } catch (t: Throwable) {
                 failed++
-                val msg = (t.message ?: t.javaClass.simpleName).take(500)
+                val msg = syncErrorMessage(t)
                 dao.markFailure(item.clientUuid, msg)
                 if (t is com.fbint.collector.data.remote.RequestNotSentException) {
                     // Transport proved that no request headers were attempted, even across

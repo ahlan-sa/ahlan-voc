@@ -126,6 +126,26 @@ class ResponseSyncTest {
     }
 
     @Test
+    fun validationRejectionShowsFieldDetailsAndPreservesSavedAnswersForRetry() = runBlocking {
+        val original = response("invalid")
+        dao.insert(original)
+        server.enqueue(MockResponse().setResponseCode(400).setBody(
+            """{"code":"bad_request","message":"Validation failed","details":{"response.data.adm03_e":"Invalid date"}}"""
+        ))
+        val repo = repository(dao)
+        val outcome = repo.syncPending()
+        assertEquals(1, outcome.failed)
+        val saved = dao.getById("invalid")!!
+        assertEquals(original.dataJson, saved.dataJson)
+        assertNull(saved.syncedAt)
+        assertNull(saved.sendingAt)
+        assertTrue(saved.lastError!!.contains("response.data.adm03_e: Invalid date"))
+        server.enqueue(MockResponse().setBody("""{"data":{"id":"recovered"}}"""))
+        assertEquals(1, repo.syncPending().synced)
+        assertEquals("recovered", dao.getById("invalid")!!.serverResponseId)
+    }
+
+    @Test
     fun serverErrorDoesNotImmediatelyResendAnUncertainResponse() = runBlocking {
         dao.insert(response("server-error"))
         server.enqueue(MockResponse().setResponseCode(503))
