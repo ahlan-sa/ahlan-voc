@@ -113,6 +113,25 @@ class ResponseBackupTest {
         } finally { server.shutdown(); db.close() }
     }
 
+    @Test fun cameraContentUriIsCopiedIntoOfflineStorage() = runBlocking {
+        // Android ships this MIME mapping; Robolectric starts with an empty table.
+        org.robolectric.Shadows.shadowOf(android.webkit.MimeTypeMap.getSingleton())
+            .addExtensionMimeTypeMapping("jpg", "image/jpeg")
+        val db = database()
+        try {
+            val directory = File(ctx.cacheDir, "camera").apply { mkdirs() }
+            val captured = File(directory, "camera-test.jpg").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+            val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", captured)
+            assertEquals("content", uri.scheme)
+            val placeholder = files(db).ingestPickedFile(uri, "survey", "photos", "env", "camera-test.jpg", 10, listOf("jpg"))
+            val record = db.queuedFileDao().getById(placeholder.removePrefix(FILE_PLACEHOLDER_PREFIX))!!
+            captured.delete()
+            assertArrayEquals(byteArrayOf(1, 2, 3, 4), File(record.localPath).readBytes())
+            assertEquals("image/jpeg", record.mimeType)
+            assertNull(record.uploadedAt)
+        } finally { db.close() }
+    }
+
     @Test fun oversizedAndUnsupportedFilesFailWithoutLeavingPartialCopies() = runBlocking {
         val db = database()
         try {

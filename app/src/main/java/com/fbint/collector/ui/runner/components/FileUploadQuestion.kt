@@ -56,7 +56,7 @@ fun FileUploadQuestion(
     var importError by remember(question.id) { mutableStateOf<String?>(null) }
     var progress by remember(question.id) { mutableStateOf("") }
     val latestAnswer by androidx.compose.runtime.rememberUpdatedState(current)
-    fun addFiles(uris: List<Uri>) {
+    fun addFiles(uris: List<Uri>, onSaved: () -> Unit = {}) {
         if (uris.isEmpty() || inFlight) return
         scope.launch {
             inFlight = true
@@ -72,6 +72,7 @@ fun FileUploadQuestion(
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { suggestedNameFromUri(ctx, uri) })
                         accepted.add(placeholder)
                         onAnswer(accepted.toList())
+                        onSaved()
                     } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                     catch (error: Exception) { failures.add(error.message ?: "Unable to read this file") }
                 }
@@ -89,9 +90,61 @@ fun FileUploadQuestion(
         addFiles(uris)
     }
 
+    var cameraFileName by androidx.compose.runtime.saveable.rememberSaveable(question.id) { mutableStateOf<String?>(null) }
+    var cameraReady by androidx.compose.runtime.saveable.rememberSaveable(question.id) { mutableStateOf(false) }
+    fun saveCameraPhoto() {
+        val name = cameraFileName ?: return
+        val file = java.io.File(ctx.cacheDir, "camera/$name")
+        if (!file.exists()) { importError = "Captured photo is unavailable. Please take it again."; cameraFileName = null; cameraReady = false; return }
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+        addFiles(listOf(uri)) { file.delete(); cameraFileName = null; cameraReady = false }
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
+        if (saved) { cameraReady = true; saveCameraPhoto() }
+        else {
+            cameraFileName?.let { java.io.File(ctx.cacheDir, "camera/$it").delete() }
+            cameraFileName = null; cameraReady = false
+        }
+    }
+    fun launchCamera() {
+        try {
+            val extensions = question.allowedFileExtensions.orEmpty().map { it.lowercase().removePrefix(".") }
+            val suffix = if ("jpeg" in extensions && "jpg" !in extensions) ".jpeg" else ".jpg"
+            val directory = java.io.File(ctx.cacheDir, "camera").apply { mkdirs() }
+            val file = java.io.File.createTempFile("photo-", suffix, directory)
+            cameraFileName = file.name
+            cameraReady = false
+            camera.launch(androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file))
+        } catch (error: Exception) {
+            cameraFileName?.let { java.io.File(ctx.cacheDir, "camera/$it").delete() }
+            cameraFileName = null
+            importError = "Unable to open camera: ${error.message}"
+        }
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) launchCamera() else importError = "Camera permission is required to take a photo. You can still choose existing images."
+    }
+    val cameraAllowed = question.allowedFileExtensions.isNullOrEmpty() ||
+        question.allowedFileExtensions.any { it.lowercase().removePrefix(".") in setOf("jpg", "jpeg") }
+
     val mimeMatcher = mimeMatcherFor(question.allowedFileExtensions)
 
     Column {
+        if (cameraAllowed && (multiAllowed || current.isEmpty())) {
+            OutlinedButton(
+                enabled = !inFlight,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    if (cameraReady) saveCameraPhoto()
+                    else if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) launchCamera()
+                    else cameraPermission.launch(android.Manifest.permission.CAMERA)
+                },
+            ) { Text(if (cameraReady) "Retry captured photo" else "Take photo") }
+            if (cameraReady && !inFlight) androidx.compose.material3.TextButton(onClick = {
+                cameraFileName?.let { java.io.File(ctx.cacheDir, "camera/$it").delete() }
+                cameraFileName = null; cameraReady = false; importError = null
+            }) { Text("Discard captured photo") }
+        }
         if (current.isEmpty()) {
             OutlinedButton(
                 onClick = { if (multiAllowed) multiplePicker.launch(mimeMatcher) else singlePicker.launch(mimeMatcher) },

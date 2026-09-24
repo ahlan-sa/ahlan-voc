@@ -41,8 +41,10 @@ class ResponseBackupRepository @Inject constructor(
                 it.copy(serverBaseUrl = it.serverBaseUrl ?: config.legacyQueueServer() ?: config.baseUrl())
             }
             require(rows.isNotEmpty()) { "No submitted responses to export yet." }
+            require(rows.size <= 10_000) { "Backup exceeds the 10,000-response recovery limit" }
             val surveys = rows.map { it.surveyId }.distinct().mapNotNull { db.surveyDao().getById(it) }
             val ids = rows.flatMap { fileIds(it) }.distinct()
+            require(ids.size <= 50_000) { "Backup exceeds the attachment recovery limit" }
             val attachments = mutableListOf<BackupFile>()
             ZipOutputStream(archive.outputStream().buffered()).use { zip ->
                 for (id in ids) {
@@ -62,8 +64,10 @@ class ResponseBackupRepository @Inject constructor(
                     attachments.add(BackupFile(record.copy(localPath = "", uploadingAt = null,
                         serverBaseUrl = record.serverBaseUrl ?: config.legacyQueueServer() ?: config.baseUrl()), entry, if (entry != null) digest.digest().joinToString("") { "%02x".format(it) } else null))
                 }
+                val manifest = adapter.toJson(ResponseBackup(responses = rows, files = attachments, surveys = surveys)).toByteArray()
+                require(manifest.size <= 16 * 1024 * 1024) { "Response metadata exceeds the 16 MB recovery limit" }
                 zip.putNextEntry(ZipEntry("responses.json"))
-                zip.write(adapter.toJson(ResponseBackup(responses = rows, files = attachments, surveys = surveys)).toByteArray())
+                zip.write(manifest)
                 zip.closeEntry()
             }
             require(archive.length() <= MAX_BACKUP_BYTES) { "Backup is larger than the supported 2 GB limit" }

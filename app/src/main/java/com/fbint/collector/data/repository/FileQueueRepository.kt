@@ -59,7 +59,10 @@ class FileQueueRepository @Inject constructor(
         allowedExtensions: List<String>? = null,
     ): String = withContext(Dispatchers.IO) {
         val resolver = ctx.contentResolver
-        val mime = resolver.getType(sourceUri) ?: "application/octet-stream"
+        val mime = resolver.getType(sourceUri)?.takeUnless { it == "application/octet-stream" }
+            ?: suggestedName?.substringAfterLast('.', "")?.lowercase()?.let {
+                MimeTypeMap.getSingleton().getMimeTypeFromExtension(it)
+            } ?: "application/octet-stream"
         val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
             ?: suggestedName?.substringAfterLast('.', "")
             ?: ""
