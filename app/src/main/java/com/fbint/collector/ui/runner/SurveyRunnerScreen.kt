@@ -115,7 +115,7 @@ private fun SurveyRunnerContent(nav: NavHostController, surveyId: String) {
         }
     }
     androidx.activity.compose.BackHandler(enabled = collecting || state.stage == RunnerStage.Submitting) {
-        if (collecting) confirmExit = true
+        if (collecting && !state.importingFiles) confirmExit = true
     }
     if (state.restoredDraft) {
         androidx.compose.material3.AlertDialog(
@@ -155,7 +155,7 @@ private fun SurveyRunnerContent(nav: NavHostController, surveyId: String) {
                     if (collecting) Text(state.locationStatus, style = MaterialTheme.typography.bodySmall)
                 } },
                 navigationIcon = {
-                    IconButton(enabled = state.stage != RunnerStage.Submitting, onClick = { if (collecting) confirmExit = true else nav.popBackStack() }) {
+                    IconButton(enabled = state.stage != RunnerStage.Submitting && !state.importingFiles, onClick = { if (collecting) confirmExit = true else nav.popBackStack() }) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back to list",
@@ -542,13 +542,14 @@ private fun FooterButtons(
             if (canBack) {
                 OutlinedButton(
                     onClick = onBack,
+                    enabled = !state.importingFiles,
                     shape = RoundedCornerShape(style.buttonCornerRadius),
                     modifier = Modifier.weight(1f),
                 ) { Text("Back") }
             }
             val isLast = survey.questions.indexOfFirst { it.id == stage.questionId } == survey.questions.lastIndex
             Box(modifier = Modifier.weight(1f)) {
-                PrimaryButton(text = if (isLast) "Submit" else "Next", style = style, onClick = onNext)
+                PrimaryButton(text = if (isLast) "Submit" else "Next", style = style, onClick = onNext, enabled = !state.importingFiles)
             }
         }
         else -> Unit
@@ -556,9 +557,10 @@ private fun FooterButtons(
 }
 
 @Composable
-private fun PrimaryButton(text: String, style: SurveyStyle, onClick: () -> Unit) {
+private fun PrimaryButton(text: String, style: SurveyStyle, enabled: Boolean = true, onClick: () -> Unit) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = style.brandColor,
             contentColor = style.onBrandColor,

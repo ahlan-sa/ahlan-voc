@@ -53,17 +53,40 @@ fun FileUploadQuestion(
     val scope = rememberCoroutineScope()
     var inFlight by remember { mutableStateOf(false) }
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    var importError by remember(question.id) { mutableStateOf<String?>(null) }
+    var progress by remember(question.id) { mutableStateOf("") }
+    val latestAnswer by androidx.compose.runtime.rememberUpdatedState(current)
+    fun addFiles(uris: List<Uri>) {
+        if (uris.isEmpty() || inFlight) return
         scope.launch {
             inFlight = true
+            delegate.setFileImportInProgress(true)
+            importError = null
+            val accepted = if (multiAllowed) latestAnswer.toMutableList() else mutableListOf()
+            val failures = mutableListOf<String>()
             try {
-                val placeholder = delegate.ingestFile(uri, question.id, suggestedNameFromUri(ctx, uri))
-                onAnswer(if (multiAllowed) current + placeholder else listOf(placeholder))
+                uris.distinct().forEachIndexed { index, uri ->
+                    progress = "Saving file ${index + 1} of ${uris.distinct().size} on device…"
+                    try {
+                        val placeholder = delegate.ingestFile(uri, question.id,
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { suggestedNameFromUri(ctx, uri) })
+                        accepted.add(placeholder)
+                        onAnswer(accepted.toList())
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (error: Exception) { failures.add(error.message ?: "Unable to read this file") }
+                }
+                if (failures.isNotEmpty()) importError = "${failures.size} file(s) not added. Others remain saved. " + failures.distinct().take(3).joinToString("; ")
             } finally {
                 inFlight = false
+                delegate.setFileImportInProgress(false)
             }
         }
+    }
+    val singlePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        addFiles(listOfNotNull(uri))
+    }
+    val multiplePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        addFiles(uris)
     }
 
     val mimeMatcher = mimeMatcherFor(question.allowedFileExtensions)
@@ -71,25 +94,28 @@ fun FileUploadQuestion(
     Column {
         if (current.isEmpty()) {
             OutlinedButton(
-                onClick = { launcher.launch(mimeMatcher) },
+                onClick = { if (multiAllowed) multiplePicker.launch(mimeMatcher) else singlePicker.launch(mimeMatcher) },
                 enabled = !inFlight,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (inFlight) "Adding…" else "Choose file") }
+            ) { Text(if (inFlight) "Adding…" else if (multiAllowed) "Choose images / files" else "Choose file") }
         } else {
             current.forEachIndexed { idx, placeholder ->
-                FileChip(placeholder = placeholder, onRemove = {
+                FileChip(placeholder = placeholder, enabled = !inFlight, onRemove = {
                     onAnswer(current.toMutableList().also { it.removeAt(idx) })
                 })
                 Spacer(Modifier.height(6.dp))
             }
             if (multiAllowed) {
                 OutlinedButton(
-                    onClick = { launcher.launch(mimeMatcher) },
+                    onClick = { if (multiAllowed) multiplePicker.launch(mimeMatcher) else singlePicker.launch(mimeMatcher) },
                     enabled = !inFlight,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (inFlight) "Adding…" else "Add another file") }
+                ) { Text(if (inFlight) "Adding…" else "Add images / files") }
             }
         }
+        if (inFlight) Text(progress)
+        importError?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
+        Text("${current.size} file(s) saved on this device")
         Spacer(Modifier.height(6.dp))
         question.maxSizeInMB?.let {
             Text("Max size: $it MB")
@@ -98,7 +124,7 @@ fun FileUploadQuestion(
 }
 
 @Composable
-private fun FileChip(placeholder: String, onRemove: () -> Unit) {
+private fun FileChip(placeholder: String, enabled: Boolean, onRemove: () -> Unit) {
     val uuid = placeholder.removePrefix(FILE_PLACEHOLDER_PREFIX)
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -107,7 +133,7 @@ private fun FileChip(placeholder: String, onRemove: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text("File queued — $uuid", modifier = Modifier.padding(end = 8.dp))
-            IconButton(onClick = onRemove) {
+            IconButton(onClick = onRemove, enabled = enabled) {
                 Icon(Icons.Filled.Delete, contentDescription = "Remove")
             }
         }

@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ResponseQueueDao {
+    @Query("SELECT * FROM queued_responses ORDER BY capturedAt ASC")
+    suspend fun exportAll(): List<QueuedResponseEntity>
+
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(item: QueuedResponseEntity)

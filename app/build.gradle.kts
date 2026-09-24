@@ -17,8 +17,8 @@ android {
         targetSdk = 35
         // Bump versionCode + versionName for every release; the in-app updater compares
         // versionName against the GitHub release tag (after stripping leading "v").
-        versionCode = 22
-        versionName = "0.5.13"
+        versionCode = 23
+        versionName = "0.5.14"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

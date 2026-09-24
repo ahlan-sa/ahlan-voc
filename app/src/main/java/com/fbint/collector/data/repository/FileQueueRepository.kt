@@ -9,6 +9,7 @@ import com.fbint.collector.data.remote.FormbricksClientApi
 import com.fbint.collector.data.remote.syncErrorMessage
 import com.fbint.collector.data.remote.dto.UploadFileRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -54,6 +55,8 @@ class FileQueueRepository @Inject constructor(
         questionId: String,
         environmentId: String,
         suggestedName: String?,
+        maxSizeInMB: Int? = null,
+        allowedExtensions: List<String>? = null,
     ): String = withContext(Dispatchers.IO) {
         val resolver = ctx.contentResolver
         val mime = resolver.getType(sourceUri) ?: "application/octet-stream"
@@ -61,13 +64,31 @@ class FileQueueRepository @Inject constructor(
             ?: suggestedName?.substringAfterLast('.', "")
             ?: ""
         val uuid = UUID.randomUUID().toString()
-        val finalName = (suggestedName?.takeIf { it.isNotBlank() } ?: "file-$uuid")
+        val finalName = (suggestedName?.substringAfterLast('/')?.substringAfterLast('\\')?.takeIf { it.isNotBlank() } ?: "file-$uuid")
             .let { name -> if (name.contains('.') || ext.isBlank()) name else "$name.$ext" }
+        val actualExt = finalName.substringAfterLast('.', "").lowercase()
+        require(allowedExtensions.isNullOrEmpty() || actualExt in allowedExtensions.map { it.lowercase().removePrefix(".") }) {
+            "$finalName: file type is not allowed for this question"
+        }
+        val maxBytes = maxSizeInMB?.takeIf { it > 0 }?.toLong()?.times(1024 * 1024)
         val targetDir = File(ctx.filesDir, "fbint-uploads").apply { mkdirs() }
         val targetFile = File(targetDir, "$uuid-$finalName")
-        resolver.openInputStream(sourceUri)?.use { input ->
-            targetFile.outputStream().use { output -> input.copyTo(output) }
-        } ?: error("Could not read picked file")
+        try {
+            resolver.openInputStream(sourceUri)?.use { input ->
+                targetFile.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        require(maxBytes == null || total <= maxBytes) { "$finalName exceeds the $maxSizeInMB MB limit" }
+                        output.write(buffer, 0, read)
+                    }
+                    require(total > 0) { "$finalName is empty or unreadable" }
+                }
+            } ?: error("Could not read $finalName")
 
         dao.insert(
             QueuedFileEntity(
@@ -84,6 +105,10 @@ class FileQueueRepository @Inject constructor(
             )
         )
         "$FILE_PLACEHOLDER_PREFIX$uuid"
+        } catch (error: Throwable) {
+            targetFile.delete()
+            throw error
+        }
     }
 
     suspend fun discardUnboundFiles(surveyId: String) = withContext(Dispatchers.IO) {

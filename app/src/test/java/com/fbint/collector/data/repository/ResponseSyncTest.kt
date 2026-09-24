@@ -140,6 +140,7 @@ class ResponseSyncTest {
         assertNull(saved.syncedAt)
         assertNull(saved.sendingAt)
         assertTrue(saved.lastError!!.contains("response.data.adm03_e: Invalid date"))
+        server.enqueue(MockResponse().setBody("""{"data":[]}"""))
         server.enqueue(MockResponse().setBody("""{"data":{"id":"recovered"}}"""))
         assertEquals(1, repo.syncPending().synced)
         assertEquals("recovered", dao.getById("invalid")!!.serverResponseId)

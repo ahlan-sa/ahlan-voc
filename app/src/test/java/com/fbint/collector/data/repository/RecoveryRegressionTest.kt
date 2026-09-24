@@ -66,9 +66,11 @@ class RecoveryRegressionTest {
             assertEquals(row.dataJson, db.responseQueueDao().getById("audit")!!.dataJson)
             assertEquals(0, server.requestCount)
             available = true
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody("""{"data":[]}"""))
             server.enqueue(okhttp3.mockwebserver.MockResponse().setBody("{\"data\":{\"id\":\"saved\"}}"))
             assertEquals(1, repo.syncPending().synced)
-            assertEquals(1, server.requestCount)
+            assertEquals(2, server.requestCount)
+            assertEquals("GET", server.takeRequest().method)
             val request = server.takeRequest()
             assertEquals("POST", request.method)
             assertTrue(request.body.readUtf8().contains("preserve me"))

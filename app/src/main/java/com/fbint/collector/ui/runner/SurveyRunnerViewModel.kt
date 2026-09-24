@@ -59,6 +59,7 @@ data class RunnerState(
     val validationError: String? = null,
     val restoredDraft: Boolean = false,
     val receiptSynced: Boolean = false,
+    val importingFiles: Boolean = false,
     val receipt: String = "",
     val locationStatus: String = "Location will be checked at submission",
 )
@@ -238,6 +239,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
     }
 
     fun next() {
+        if (_state.value.importingFiles) return
         val s = _state.value
         val survey = s.survey ?: return
         val current = (s.stage as? RunnerStage.Question)?.questionId?.let { id ->
@@ -265,6 +267,7 @@ class SurveyRunnerViewModel @AssistedInject constructor(
     }
 
     fun back() {
+        if (_state.value.importingFiles) return
         if (backStack.isEmpty()) return
         val previous = backStack.removeLast()
         ctx.variables.clear(); ctx.variables.putAll(previous.variables)
@@ -425,6 +428,8 @@ class SurveyRunnerViewModel @AssistedInject constructor(
         _state.value.answers[question.id] ?: question.initialAnswer()
 
     /** FileUploadDelegate implementation — bridges composables to the file repository. */
+    override fun setFileImportInProgress(active: Boolean) { _state.update { it.copy(importingFiles = active) } }
+
     override suspend fun ingestFile(uri: Uri, questionId: String, suggestedName: String?): String {
         val survey = _state.value.survey ?: error("Survey not loaded")
         return fileRepo.ingestPickedFile(
@@ -433,6 +438,8 @@ class SurveyRunnerViewModel @AssistedInject constructor(
             questionId = questionId,
             environmentId = survey.environmentId,
             suggestedName = suggestedName,
+            maxSizeInMB = survey.questions.firstOrNull { it.id == questionId }?.maxSizeInMB,
+            allowedExtensions = survey.questions.firstOrNull { it.id == questionId }?.allowedFileExtensions,
         )
     }
 

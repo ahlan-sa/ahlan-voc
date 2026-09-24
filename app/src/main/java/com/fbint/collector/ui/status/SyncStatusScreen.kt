@@ -35,6 +35,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.setValue
 
 data class SyncStatusState(
     val pending: Int = 0,
@@ -49,6 +51,7 @@ class SyncStatusViewModel @Inject constructor(
     private val repo: ResponseRepository,
     private val sync: SyncScheduler,
     private val surveys: com.fbint.collector.data.local.SurveyDao,
+    private val backups: com.fbint.collector.data.repository.ResponseBackupRepository,
 ) : ViewModel() {
     val state = combine(
         repo.pendingCount(),
@@ -62,6 +65,26 @@ class SyncStatusViewModel @Inject constructor(
 
     val manualSync = sync.observeManualSync().map { list -> list.firstOrNull { !it.state.isFinished } ?: list.maxByOrNull { it.outputData.getLong("finishedAt", 0) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val backupBusy = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val backupMessage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    fun exportBackup(uri: android.net.Uri) = backupOperation {
+        val count = backups.export(uri)
+        "$count submitted responses exported with locally available attachments. Uploaded-only attachments retain their URLs. Keep this file private."
+    }
+    fun restoreBackup(uri: android.net.Uri) = backupOperation {
+        val count = backups.restore(uri)
+        "$count responses restored; existing responses were kept. Tap Sync now to verify and upload pending responses. Keep the original phone offline."
+    }
+    private fun backupOperation(action: suspend () -> String) {
+        if (backupBusy.value) return
+        backupBusy.value = true
+        viewModelScope.launch {
+            try { backupMessage.value = action() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { backupMessage.value = "Backup operation failed: ${error.message}. Original responses remain saved." }
+            finally { backupBusy.value = false }
+        }
+    }
     fun syncNow() = sync.requestManualSync()
 }
 
@@ -74,6 +97,24 @@ fun SyncStatusScreen(
     val state by vm.state.collectAsState()
     val manual by vm.manualSync.collectAsState()
     val manualBusy = manual?.state?.isFinished == false
+    val backupBusy by vm.backupBusy.collectAsState()
+    val backupMessage by vm.backupMessage.collectAsState()
+    var restoreUri by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<android.net.Uri?>(null) }
+    val exporter = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        uri?.let { vm.exportBackup(it) }
+    }
+    val importer = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri -> restoreUri = uri }
+    if (restoreUri != null) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { restoreUri = null },
+        title = { Text("Restore responses") },
+        text = { Text("Connect this app to the original Formbricks server first. If this backup is from another phone, keep that phone offline during recovery and stop using its old queue afterward. Otherwise both phones could upload the same responses. Existing responses on this phone will not be overwritten.") },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = {
+            restoreUri?.let { vm.restoreBackup(it) }; restoreUri = null
+        }) { Text("Original phone offline · restore") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { restoreUri = null }) { Text("Cancel") } },
+    )
 
     Scaffold(topBar = { TopAppBar(title = { Text("Sync status") }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -90,6 +131,16 @@ fun SyncStatusScreen(
                 enabled = !manualBusy,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             ) { Text(if (manualBusy) "Sync requested…" else "Sync now") }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(enabled = !backupBusy, onClick = {
+                    exporter.launch("ahlan-responses-${System.currentTimeMillis()}.zip")
+                }) { Text("Export backup") }
+                androidx.compose.material3.TextButton(enabled = !backupBusy && !manualBusy, onClick = {
+                    importer.launch("application/zip")
+                }) { Text("Restore backup") }
+            }
+            if (backupBusy) Text("Preparing response backup…", Modifier.padding(horizontal = 16.dp))
+            backupMessage?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall) }
             manual?.let { work ->
                 val message = when (work.state) {
                     androidx.work.WorkInfo.State.RUNNING -> "Checking saved responses and uploading…"

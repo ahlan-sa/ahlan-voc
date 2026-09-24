@@ -8,6 +8,7 @@ import android.net.Uri
  * ViewModel.
  */
 interface FileUploadDelegate {
+    fun setFileImportInProgress(active: Boolean) {}
     /** Copy the picked URI into private storage; return the placeholder for the answer list. */
     suspend fun ingestFile(uri: Uri, questionId: String, suggestedName: String?): String
 }

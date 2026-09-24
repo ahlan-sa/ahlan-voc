@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface QueuedFileDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun restore(file: QueuedFileEntity)
+
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(file: QueuedFileEntity)

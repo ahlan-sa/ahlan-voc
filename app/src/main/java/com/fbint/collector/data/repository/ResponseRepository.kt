@@ -109,7 +109,7 @@ class ResponseRepository @Inject constructor(
             val resolvedFiles: Map<String, com.fbint.collector.data.local.entity.QueuedFileEntity>
             val req: CreateResponseRequest
             try {
-                if (item.sendingAt != null) {
+                if (item.sendingAt != null || item.attempts > 0) {
                     val existing = reconcile(item)
                     if (existing != null) {
                         dao.markSynced(item.clientUuid, System.currentTimeMillis(), existing)
@@ -123,7 +123,9 @@ class ResponseRepository @Inject constructor(
                     else files.getByIds(placeholderIds).associateBy { it.clientUuid }
 
                 if (placeholderIds.any { id -> resolvedFiles[id]?.uploadedFileUrl.isNullOrBlank() }) {
-                    // Files not yet uploaded — skip without marking failure so the worker re-runs.
+                    // Surface attachment failures instead of leaving the response silently waiting.
+                    val fileError = placeholderIds.firstNotNullOfOrNull { id -> resolvedFiles[id]?.lastError }
+                    if (fileError != null) dao.markFailure(item.clientUuid, "Attachment upload: $fileError".take(1200))
                     retry = true
                     continue
                 }

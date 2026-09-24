@@ -1,6 +1,8 @@
 package com.fbint.collector.domain
 
-internal fun syncRecoveryAdvice(error: String): String = when {
+internal fun syncRecoveryAdvice(error: String): String = recoveryAdvice(error.removePrefix("Attachment upload: "))
+
+private fun recoveryAdvice(error: String): String = when {
     error.startsWith("HTTP 400") || error.startsWith("HTTP 422") ->
         "Saved on this device. Ask your coordinator to review the error below. Do not collect this response again."
     error.startsWith("HTTP 401") || error.startsWith("HTTP 403") ->
