@@ -28,7 +28,11 @@ class FormbricksApiFactory(
      * dispatcher, so the extra client costs nothing.
      */
     private val noRetryClient: OkHttpClient by lazy {
-        client.newBuilder().retryOnConnectionFailure(false).build()
+        client.newBuilder().retryOnConnectionFailure(false)
+            .callTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+            .eventListenerFactory { call -> UploadProgressListener(call.request().tag(UploadTrace::class.java)) }
+            .addInterceptor(UnsentRequestInterceptor())
+            .build()
     }
 
     private var managementCacheUrl: String? = null
@@ -51,14 +55,16 @@ class FormbricksApiFactory(
         val url = baseUrlProvider().normalizeBaseUrl()
         if (clientCacheUrl != url || clientCache == null) {
             clientCacheUrl = url
-            clientCache = build(url, noRetryClient).create(FormbricksClientApi::class.java)
+            clientCache = build(url, noRetryClient, trackUpload = true).create(FormbricksClientApi::class.java)
         }
         return clientCache!!
     }
 
-    private fun build(baseUrl: String, httpClient: OkHttpClient): Retrofit = Retrofit.Builder()
+    private fun build(baseUrl: String, httpClient: OkHttpClient, trackUpload: Boolean = false): Retrofit = Retrofit.Builder()
         .baseUrl(baseUrl.toHttpUrl())
-        .client(httpClient)
+        .callFactory(okhttp3.Call.Factory { request ->
+            httpClient.newCall(if (trackUpload) request.newBuilder().tag(UploadTrace::class.java, UploadTrace()).build() else request)
+        })
         .addConverterFactory(MoshiConverterFactory.create(moshi))
         .build()
 

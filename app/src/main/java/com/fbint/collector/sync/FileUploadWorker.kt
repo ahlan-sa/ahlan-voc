@@ -18,6 +18,8 @@ class FileUploadWorker @AssistedInject constructor(
     override suspend fun doWork(): Result = try {
         val outcome = files.uploadPending()
         if (outcome.retry) Result.retry() else Result.success()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
     } catch (t: Throwable) {
         if (runAttemptCount >= MAX_ATTEMPTS) Result.failure() else Result.retry()
     }

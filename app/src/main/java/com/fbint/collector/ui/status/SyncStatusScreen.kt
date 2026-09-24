@@ -33,6 +33,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 data class SyncStatusState(
@@ -59,7 +60,9 @@ class SyncStatusViewModel @Inject constructor(
         SyncStatusState(pending, synced, struggling, recent, surveys.associate { it.id to it.name })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncStatusState())
 
-    fun syncNow() = sync.requestImmediateSync()
+    val manualSync = sync.observeManualSync().map { list -> list.firstOrNull { !it.state.isFinished } ?: list.maxByOrNull { it.outputData.getLong("finishedAt", 0) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    fun syncNow() = sync.requestManualSync()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,6 +72,8 @@ fun SyncStatusScreen(
     vm: SyncStatusViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val manual by vm.manualSync.collectAsState()
+    val manualBusy = manual?.state?.isFinished == false
 
     Scaffold(topBar = { TopAppBar(title = { Text("Sync status") }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -78,12 +83,26 @@ fun SyncStatusScreen(
             ) {
                 StatTile("Pending", state.pending.toString(), Modifier.weight(1f))
                 StatTile("Synced", state.synced.toString(), Modifier.weight(1f))
-                StatTile("Stuck", state.struggling.toString(), Modifier.weight(1f))
+                StatTile("Needs retry", state.struggling.toString(), Modifier.weight(1f))
             }
             Button(
                 onClick = vm::syncNow,
+                enabled = !manualBusy,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            ) { Text("Sync now") }
+            ) { Text(if (manualBusy) "Sync requested…" else "Sync now") }
+            manual?.let { work ->
+                val message = when (work.state) {
+                    androidx.work.WorkInfo.State.RUNNING -> "Checking saved responses and uploading…"
+                    androidx.work.WorkInfo.State.ENQUEUED, androidx.work.WorkInfo.State.BLOCKED -> "Queued — waiting for a connection or Android to start the check."
+                    androidx.work.WorkInfo.State.CANCELLED -> "Check interrupted. Responses remain saved; tap Sync now again."
+                    else -> work.outputData.getString("message") ?: "Check finished. See the response statuses below."
+                }
+                Text(message, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
+                val completed = work.outputData.getLong("finishedAt", 0)
+                if (completed > 0) Text("Last check: " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,
+                    java.text.DateFormat.SHORT).format(java.util.Date(completed)), modifier = Modifier.padding(horizontal = 16.dp),
+                    style = MaterialTheme.typography.bodySmall)
+            }
 
             Spacer(Modifier.height(16.dp))
             Text(
@@ -112,7 +131,7 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
 private fun ResponseRow(item: QueuedResponseEntity, name: String?) {
     val statusLabel = when {
         item.syncedAt != null -> "Synced"
-        item.sendingAt != null -> "Verifying upload before retry"
+        item.sendingAt != null -> "Saved · awaiting upload verification"
         item.attempts == 0 -> "Saved on device · waiting to sync"
         else -> "Retry x${item.attempts}"
     }
@@ -128,9 +147,12 @@ private fun ResponseRow(item: QueuedResponseEntity, name: String?) {
             if (item.syncedAt != null) Text("Synced " + java.text.DateFormat.getDateTimeInstance(
                 java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(item.syncedAt)),
                 style = MaterialTheme.typography.bodySmall)
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text("Response ID: ${item.clientUuid}", style = MaterialTheme.typography.labelSmall)
+            }
             if (!item.lastError.isNullOrBlank() && item.syncedAt == null) {
                 Text(
-                    item.lastError,
+                    "Last recorded error: ${item.lastError}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

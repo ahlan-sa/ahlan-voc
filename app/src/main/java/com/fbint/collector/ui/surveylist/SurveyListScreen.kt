@@ -92,7 +92,7 @@ fun SurveyListScreen(
                 synced = state.syncedResponses,
                 struggling = state.strugglingResponses,
                 online = state.online,
-                onSyncNow = vm::syncNow,
+                onSyncNow = { vm.syncNow(); nav.navigate(Routes.SYNC_STATUS) },
             )
             val team = state.teamPerformance
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),

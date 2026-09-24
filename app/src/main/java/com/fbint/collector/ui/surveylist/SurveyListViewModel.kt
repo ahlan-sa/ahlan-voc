@@ -204,7 +204,7 @@ class SurveyListViewModel @Inject constructor(
         }
     }
 
-    fun syncNow() = sync.requestImmediateSync()
+    fun syncNow() = sync.requestManualSync()
 
     /** Clears every device-level setting so the splash re-routes to the role picker. */
     fun resetDevice() {

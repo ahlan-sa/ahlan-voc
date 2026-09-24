@@ -50,6 +50,33 @@ class QueueMigrationTest {
         }
     }
 
+    @Test fun reopeningExistingVersionFivePreservesStuckRowsAndSavedSurveys() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val name = "recovery-upgrade.db"
+        context.deleteDatabase(name)
+        fun open() = Room.databaseBuilder(context, AppDatabase::class.java, name)
+            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5).build()
+        val row = com.fbint.collector.data.local.entity.QueuedResponseEntity(
+            clientUuid = "old-stuck-id", surveyId = "survey", environmentId = "env", surveyorId = "Collector",
+            finished = true, language = "ar-SA", dataJson = "{\"question\":\"saved answer\"}", capturedAt = 1000,
+            attempts = 3, lastError = "Unable to resolve host", sendingAt = 1100,
+            serverBaseUrl = "https://original", autoStampsJson = "{\"location_lat\":\"24.7\"}")
+        val file = QueuedFileEntity("attachment", "survey", "q", "env", "/preserved/file", "photo.jpg", "image/jpeg", 5, 1,
+            boundResponseUuid = row.clientUuid)
+        val survey = com.fbint.collector.data.local.entity.SurveyEntity("survey", "Saved survey", "inProgress", "link", "env", null, 1, "{}")
+        val before = open()
+        before.responseQueueDao().insert(row)
+        before.queuedFileDao().insert(file)
+        before.surveyDao().upsert(survey)
+        before.close()
+        val after = open()
+        try {
+            assertEquals(row, after.responseQueueDao().getById(row.clientUuid))
+            assertEquals(file, after.queuedFileDao().getById(file.clientUuid))
+            assertEquals(survey, after.surveyDao().getById(survey.id))
+        } finally { after.close(); context.deleteDatabase(name) }
+    }
+
     @Test fun todayCounterIncludesPendingAndSyncedButExcludesOtherPeopleServersAndDays() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), AppDatabase::class.java).build()
         try {

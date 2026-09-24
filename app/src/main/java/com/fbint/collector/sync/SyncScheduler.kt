@@ -26,11 +26,18 @@ class SyncScheduler @Inject constructor(
         scheduleFileUploadPeriodic()
     }
 
-    /** Queue a follow-up pass without cancelling a POST already in progress. */
+    /** Keep one automatic retry chain without cancelling an active upload or growing a backlog. */
     fun requestImmediateSync() {
-        enqueueOneShot<FileUploadWorker>(FileUploadWorker.UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE)
-        enqueueOneShot<ResponseSyncWorker>(ResponseSyncWorker.UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE)
+        enqueueOneShot<FileUploadWorker>(FileUploadWorker.UNIQUE_NAME, ExistingWorkPolicy.KEEP)
+        enqueueOneShot<ResponseSyncWorker>(ResponseSyncWorker.UNIQUE_NAME, ExistingWorkPolicy.KEEP)
     }
+
+    fun requestManualSync() {
+        enqueueOneShot<ManualSyncWorker>(ManualSyncWorker.UNIQUE_NAME, ExistingWorkPolicy.KEEP)
+    }
+
+    fun observeManualSync(): kotlinx.coroutines.flow.Flow<List<androidx.work.WorkInfo>> =
+        wm.getWorkInfosForUniqueWorkFlow(ManualSyncWorker.UNIQUE_NAME)
 
     fun requestImmediateSurveyRefresh() {
         enqueueOneShot<SurveyRefreshWorker>(SurveyRefreshWorker.UNIQUE_NAME)
@@ -42,6 +49,7 @@ class SyncScheduler @Inject constructor(
     ) {
         val req = OneTimeWorkRequestBuilder<W>()
             .setConstraints(networkConstraints())
+            .setInputData(androidx.work.workDataOf("requestedAt" to System.currentTimeMillis()))
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         wm.enqueueUniqueWork(uniqueName, policy, req)

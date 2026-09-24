@@ -9,6 +9,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -97,7 +98,7 @@ class ResponseRepository @Inject constructor(
     suspend fun syncPending(): SyncOutcome {
         val now = System.currentTimeMillis()
         val pending = dao.pendingOnce(staleBefore = now - SENDING_STALE_MS)
-        if (pending.isEmpty()) return SyncOutcome(0, 0, false)
+        if (pending.isEmpty()) return SyncOutcome(0, 0, dao.pendingCount().first() > 0)
         var synced = 0
         var failed = 0
         var retry = false
@@ -198,7 +199,12 @@ class ResponseRepository @Inject constructor(
                 failed++
                 val msg = (t.message ?: t.javaClass.simpleName).take(500)
                 dao.markFailure(item.clientUuid, msg)
-                if (isFatal(t)) {
+                if (t is com.fbint.collector.data.remote.RequestNotSentException) {
+                    // Transport proved that no request headers were attempted, even across
+                    // redirects. Keep the row but release its uncertainty hold for recovery.
+                    dao.clearSending(item.clientUuid)
+                    retry = true
+                } else if (isFatal(t)) {
                     // 4xx: server rejected the request — no response row was created, so
                     // it's safe to clear in-flight and let a future worker retry without
                     // waiting out the stale window. (Whether retry succeeds is a separate
@@ -213,7 +219,9 @@ class ResponseRepository @Inject constructor(
                 }
             }
         }
-        return SyncOutcome(synced, failed, retry)
+        // Include rows skipped due to another worker's claim or a still-active safety hold.
+        val held = dao.pendingCount().first() > 0 && dao.pendingOnce(System.currentTimeMillis() - SENDING_STALE_MS).isEmpty()
+        return SyncOutcome(synced, failed, retry || held)
     }
 
     /** Resolve an uncertain acknowledgement before permitting another POST. */
