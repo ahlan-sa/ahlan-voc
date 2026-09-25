@@ -24,9 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fbint.collector.data.remote.dto.QuestionDto
+import com.fbint.collector.data.remote.dto.ChoiceDto
 import com.fbint.collector.domain.localized
 
 private const val OTHER_CHOICE_ID = "other"
+
+private fun ChoiceDto.matches(answer: String): Boolean = id != OTHER_CHOICE_ID &&
+    (answer == id || label.orEmpty().keys.any { answer == label.localized(it) })
 
 /**
  * Single-choice. Stored value is the chosen choice's localized **label** (Formbricks server
@@ -40,12 +44,14 @@ fun ChoiceSingleQuestion(
     onAnswer: (Any?) -> Unit,
 ) {
     val choices = question.choices.orEmpty()
-    var otherText by rememberSaveable(question.id) { mutableStateOf(answer.orEmpty()) }
+    var otherText by rememberSaveable(question.id) {
+        mutableStateOf(answer?.takeIf { value -> choices.none { it.matches(value) } }.orEmpty())
+    }
     choices.forEach { choice ->
         val choiceLabel = choice.label.localized(lang)
         val isOther = choice.id == OTHER_CHOICE_ID
-        val selected = if (isOther) answer != null && choices.none { it.label.localized(lang) == answer }
-            else answer == choiceLabel
+        val selected = if (isOther) answer != null && choices.none { it.matches(answer) }
+            else answer != null && choice.matches(answer)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -93,13 +99,13 @@ fun ChoiceMultiQuestion(
     val choices = question.choices.orEmpty()
     val current = answer.orEmpty()
     var otherText by rememberSaveable(question.id) {
-        mutableStateOf(current.firstOrNull { c -> choices.none { it.label.localized(lang) == c } } ?: "")
+        mutableStateOf(current.firstOrNull { c -> c.isNotBlank() && choices.none { it.matches(c) } } ?: "")
     }
     choices.forEach { choice ->
         val choiceLabel = choice.label.localized(lang)
         val isOther = choice.id == OTHER_CHOICE_ID
-        val selected = if (isOther) current.any { c -> choices.none { it.label.localized(lang) == c } }
-            else choiceLabel in current
+        val selected = if (isOther) current.any { c -> choices.none { it.matches(c) } }
+            else current.any { choice.matches(it) }
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -107,12 +113,12 @@ fun ChoiceMultiQuestion(
                 .toggleable(
                     value = selected,
                     onValueChange = { isOn ->
-                        val withoutOther = current.filter { c -> choices.any { it.label.localized(lang) == c } }
+                        val withoutOther = current.filter { c -> choices.any { it.matches(c) } }
                         val next = when {
-                            isOther && isOn -> withoutOther + (otherText.takeIf { it.isNotBlank() } ?: "")
+                            isOther && isOn -> withoutOther + listOf("", otherText)
                             isOther && !isOn -> withoutOther
                             isOn -> current + choiceLabel
-                            else -> current - choiceLabel
+                            else -> current.filterNot { choice.matches(it) }
                         }
                         onAnswer(next)
                     },
@@ -131,8 +137,8 @@ fun ChoiceMultiQuestion(
                     value = otherText,
                     onValueChange = { value ->
                         otherText = value
-                        val withoutOther = current.filter { c -> choices.any { it.label.localized(lang) == c } }
-                        onAnswer(withoutOther + value)
+                        val withoutOther = current.filter { c -> choices.any { it.matches(c) } }
+                        onAnswer(withoutOther + listOf("", value))
                     },
                     label = { Text(question.otherOptionPlaceholder.localized(lang).ifBlank { "Please specify" }) },
                     singleLine = true,

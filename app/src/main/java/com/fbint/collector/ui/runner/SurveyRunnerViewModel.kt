@@ -26,6 +26,7 @@ import com.fbint.collector.domain.defaultLanguageCode
 import com.fbint.collector.domain.initialAnswer
 import com.fbint.collector.domain.languageOptions
 import com.fbint.collector.domain.isAnswerValid
+import com.fbint.collector.domain.hasIncompleteChoiceAnswer
 import com.fbint.collector.domain.isVisibleInApp
 import com.fbint.collector.sync.SyncScheduler
 import dagger.assisted.Assisted
@@ -247,7 +248,8 @@ class SurveyRunnerViewModel @AssistedInject constructor(
         } ?: return
         val answer = s.answers[current.id]
         if (!current.isAnswerValid(answer)) {
-            _state.update { it.copy(validationError = "Required") }
+            _state.update { it.copy(validationError = if (current.hasIncompleteChoiceAnswer(answer))
+                "Enter text for Other, or deselect Other and choose an answer." else "Please answer this question.") }
             return
         }
         val beforeLogic = ctx.variables.toMap()

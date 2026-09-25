@@ -111,7 +111,25 @@ private fun String.stripHtml(): String {
  * v1 we apply only the static `required` flag — `requireAnswer` is unusual in field
  * collection workflows and the safe default is "respect the static schema."
  */
+fun QuestionDto.hasIncompleteChoiceAnswer(answer: Any?): Boolean {
+    if (type == QType.CHOICE_SINGLE) return answer is String && answer.isBlank()
+    if (type != QType.CHOICE_MULTI || answer !is List<*>) return false
+    return answer.withIndex().any { (index, value) ->
+        if (value !is String) true
+        else if (!value.isBlank()) false
+        else {
+            val text = answer.getOrNull(index + 1) as? String
+            // An empty separator is valid only before actual Other text, never a normal choice.
+            value != "" || choices.orEmpty().none { it.id == "other" } || text.isNullOrBlank() ||
+                choices.orEmpty().filter { it.id != "other" }.any { choice ->
+                    text == choice.id || choice.label.orEmpty().keys.any { text == choice.label.localized(it) }
+                }
+        }
+    }
+}
+
 fun QuestionDto.isAnswerValid(answer: Any?): Boolean {
+    if (hasIncompleteChoiceAnswer(answer)) return false
     if (!required) return true
     return when (type) {
         QType.OPEN_TEXT -> (answer as? String)?.isNotBlank() == true
