@@ -288,6 +288,29 @@ class FormbricksCompatibilityTest {
         val body = moshi.adapter(Map::class.java).fromJson(server.takeRequest().body.readUtf8())!!
         val data = body["data"] as Map<*, *>
         stamps.forEach { (key, value) -> assertEquals(value, data[key]) }
+        assertEquals(mapOf("interview" to 123000.0), body["ttc"])
+    }
+
+    @Test
+    fun timingSyncsWithoutDurationHiddenFieldAndInvalidTimingIsOmitted() = runBlocking {
+        val durations = listOf("123", "invalid", "-1", null)
+        durations.forEachIndexed { index, duration ->
+            responses.enqueue("timing-$index", "legacy-env", mapOf("score" to 5), true, null,
+                autoStampCandidates = duration?.let { mapOf("time_to_complete_seconds" to it) }.orEmpty(),
+                allowedHiddenFieldIds = setOf("surveyor_id"))
+            reply("""{"data":{"id":"saved-$index"}}""")
+        }
+        assertEquals(4, responses.syncPending().synced)
+        repeat(4) {
+            val body = moshi.adapter(Map::class.java).fromJson(server.takeRequest().body.readUtf8())!!
+            assertEquals(true, body["finished"])
+            assertFalse((body["data"] as Map<*, *>).containsKey("time_to_complete_seconds"))
+            if (body["surveyId"] == "timing-0") {
+                assertEquals(mapOf("interview" to 123000.0), body["ttc"])
+            } else {
+                assertFalse(body.containsKey("ttc"))
+            }
+        }
     }
 
     @Test
