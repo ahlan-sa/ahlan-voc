@@ -143,6 +143,8 @@ class ResponseRepository @Inject constructor(
                 // name. Question-answer keys are CUIDs, hidden field names are admin-chosen
                 // strings, so no collision; explicit answers win over hidden if any clash.
                 val autoStamps: Map<String, Any?> = mapAdapter.fromJson(item.autoStampsJson.orEmpty().ifBlank { "{}" }) ?: emptyMap()
+                // Timing is independent of whether the survey declares a duration hidden field.
+                val ttc = interviewTiming(autoStamps)
                 val survey = surveyRepo.loadFromCache(item.surveyId)
                 val declaredAtCapture = mapAdapter.fromJson(item.allowedHiddenFieldsJson ?: "{}")?.keys.orEmpty()
                 val allowed = survey?.hiddenFields?.fieldIds.orEmpty().toSet() + declaredAtCapture
@@ -168,6 +170,7 @@ class ResponseRepository @Inject constructor(
                     language = sanitizedLang,
                     variables = variables.takeIf { it.isNotEmpty() },
                     hiddenFields = null,
+                    ttc = ttc,
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
